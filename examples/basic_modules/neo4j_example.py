@@ -428,7 +428,7 @@ def run_user_session(
     # === Step 2: Create two concept nodes linked to the topic ===
     concept_items = []
     for i, text in enumerate(concept_texts):
-        concept = TextualMemoryItem(
+        concept = TextualMemoryItem( 
             memory=text,
             metadata=TreeNodeTextualMemoryMetadata(
                 memory_type="LongTermMemory",
@@ -476,16 +476,16 @@ def run_user_session(
         node = graph.get_node(r["id"])
         print("🔍 Search result:", node["memory"])
 
-    # === Step 5: Tag-based neighborhood discovery ===
+    # === Step 5: Tag-based neighborhood discovery ===  # 此方法已被抛弃
     neighbors = graph.get_neighbors_by_tag(["concept"], exclude_ids=[], top_k=2)
     print("📎 Tag-related nodes:", [neighbor["memory"] for neighbor in neighbors])
 
-    # === Step 6: Retrieve children (facts) of first concept ===
+    # === Step 6: Retrieve children (facts) of first concept ===   # 此方法已被抛弃
     children = graph.get_children_with_embeddings(concept_items[0].id)
     print("📍 Children of concept:", [child["memory"] for child in children])
 
     # === Step 7: Export a local subgraph and grouped statistics ===
-    subgraph = graph.get_subgraph(topic.id, depth=2)
+    subgraph = graph.get_subgraph(topic.id, depth=2)  # 返回一个以 topic 节点为中心的， 及其包含 2 层深度子节点【半径为 2】的子图
     print("📌 Subgraph node count:", len(subgraph["neighbors"]))
 
     stats = graph.get_grouped_counts(["memory_type", "status"])
@@ -540,9 +540,9 @@ def example_complex_shared_db(db_name: str = "shared-traval-group-complex", comm
 if __name__ == "__main__":
     print("\n=== Example: Multi-DB ===")
     example_multi_db(db_name="paper")
-
     print("\n=== Example: Single-DB ===")
     example_shared_db(db_name="shared-traval-group")
+
 
     print("\n=== Example: Single-DB-Complex ===")
     example_complex_shared_db(db_name="shared-traval-group-complex-new")

@@ -16,6 +16,7 @@ class BaseChunkerConfig(BaseConfig):
     min_sentences_per_chunk: int = Field(default=1, description="Minimum sentences in each chunk")
 
 
+
 class SentenceChunkerConfig(BaseChunkerConfig):
     """Configuration for sentence-based text chunker."""
 
@@ -33,7 +34,23 @@ class ChunkerConfigFactory(BaseConfig):
     @field_validator("backend")
     @classmethod
     def validate_backend(cls, backend: str) -> str:
-        """Validate the backend field."""
+        """
+        验证后端字段的有效性
+        
+        Args:
+            backend (str): 用户指定的后端名称
+            
+        Returns:
+            str: 验证通过的后端名称
+            
+        Raises:
+            ValueError: 当后端名称不在预定义的后端列表中时抛出异常
+            
+        说明:
+            此方法确保用户只能使用系统中已预定义的分块器后端，
+            防止因输入无效后端名称而导致的运行时错误。
+            backend_to_class字典定义了所有可用的后端选项。
+        """
         if backend not in cls.backend_to_class:
             raise ValueError(f"Invalid backend: {backend}")
         return backend

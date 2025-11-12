@@ -22,7 +22,7 @@ class BaseConfig(BaseModel):
     model_schema: str = Field(
         "NOT_SET",
         description="Schema for configuration. This value will be automatically set.",
-        exclude=True,
+        exclude=True,   # exclude=True 是 Pydantic Field 的一个参数，它的含义是在 序列化 时排除该字段。在使用 model_dump() 、 model_dump_json() 等方法时不会被包含在输出中
     )
 
     model_config = ConfigDict(extra="forbid", strict=True)
