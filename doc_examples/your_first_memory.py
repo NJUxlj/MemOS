@@ -24,7 +24,7 @@ config = MemoryConfigFactory(
             "config": {
                 "collection_name": "test_textual_memory",
                 "distance_metric": "cosine",
-                "vector_dimension": 768,
+                "vector_dimension": 1024,
             },
         },
         "embedder": {
