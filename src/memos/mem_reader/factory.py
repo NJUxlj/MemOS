@@ -2,7 +2,9 @@ from typing import Any, ClassVar
 
 from memos.configs.mem_reader import MemReaderConfigFactory
 from memos.mem_reader.base import BaseMemReader
+from memos.mem_reader.multi_modal_struct import MultiModalStructMemReader
 from memos.mem_reader.simple_struct import SimpleStructMemReader
+from memos.mem_reader.strategy_struct import StrategyStructMemReader
 from memos.memos_tools.singleton import singleton_factory
 
 
@@ -11,6 +13,8 @@ class MemReaderFactory(BaseMemReader):
 
     backend_to_class: ClassVar[dict[str, Any]] = {
         "simple_struct": SimpleStructMemReader,
+        "strategy_struct": StrategyStructMemReader,
+        "multimodal_struct": MultiModalStructMemReader,
     }
 
     @classmethod

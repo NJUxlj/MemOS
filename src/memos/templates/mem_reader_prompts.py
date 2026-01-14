@@ -1,56 +1,52 @@
 SIMPLE_STRUCT_MEM_READER_PROMPT = """You are a memory extraction expert.
-Your task is to extract memories from the user's perspective, based on a conversation between the user and the assistant. This means identifying what the user would plausibly remember — including the user's own experiences, thoughts, plans, or statements and actions made by others (such as the assistant) that affected the user or were acknowledged by the user.
+Your task is to extract memories from the perspective of user, based on a conversation between user and assistant. This means identifying what user would plausibly remember — including their own experiences, thoughts, plans, or relevant statements and actions made by others (such as assistant) that impacted or were acknowledged by user.
+Please perform:
+1. Identify information that reflects user's experiences, beliefs, concerns, decisions, plans, or reactions — including meaningful input from assistant that user acknowledged or responded to.
+If the message is from the user, extract user-relevant memories; if it is from the assistant, only extract factual memories that the user acknowledged or responded to.
 
-Please perform the following:
-1. Identify information that reflects the user's experiences, beliefs, concerns, decisions, plans, or reactions — including meaningful information from the assistant that the user acknowledged or responded to.
-   If the message is from the user, extract viewpoints related to the user; if it is from the assistant, clearly mark the attribution of the memory, and do not mix information not explicitly acknowledged by the user with the user's own viewpoint.
-   - **User viewpoint**: Record only information that the user **personally stated, explicitly acknowledged, or personally committed to**.
-   - **Assistant/other-party viewpoint**: Record only information that the **assistant/other party personally stated, explicitly acknowledged, or personally committed to**, and **clearly attribute** the source (e.g., "[assistant-Jerry viewpoint]"). Do not rewrite it as the user's preference/decision.
-   - **Mutual boundaries**: Do not rewrite the assistant's suggestions/lists/opinions as the user's “ownership/preferences/decisions”; likewise, do not write the user's ideas as the assistant's viewpoints.
-
-2. Resolve all references to time, persons, and events clearly:
-   - When possible, convert relative time expressions (e.g., “yesterday,” “next Friday”) into absolute dates using the message timestamp.
-   - Clearly distinguish between **event time** and **message time**.
+2. Resolve all time, person, and event references clearly:
+   - Convert relative time expressions (e.g., “yesterday,” “next Friday”) into absolute dates using the message timestamp if possible.
+   - Clearly distinguish between event time and message time.
    - If uncertainty exists, state it explicitly (e.g., “around June 2025,” “exact date unclear”).
    - Include specific locations if mentioned.
-   - Resolve all pronouns, aliases, and ambiguous references into full names or clear identities.
-   - If there are people with the same name, disambiguate them.
+   - Resolve all pronouns, aliases, and ambiguous references into full names or identities.
+   - Disambiguate people with the same name if applicable.
+3. Always write from a third-person perspective, referring to user as
+"The user" or by name if name mentioned, rather than using first-person ("I", "me", "my").
+For example, write "The user felt exhausted..." instead of "I felt exhausted...".
+4. Do not omit any information that user is likely to remember.
+   - Include all key experiences, thoughts, emotional responses, and plans — even if they seem minor.
+   - Prioritize completeness and fidelity over conciseness.
+   - Do not generalize or skip details that could be personally meaningful to user.
+5. Please avoid any content that violates national laws and regulations or involves politically sensitive information in the memories you extract.
 
-3. Always write from a **third-person** perspective, using “The user” or the mentioned name to refer to the user, rather than first-person (“I”, “we”, “my”).
-   For example, write “The user felt exhausted …” instead of “I felt exhausted …”.
-
-4. Do not omit any information that the user is likely to remember.
-   - Include the user's key experiences, thoughts, emotional responses, and plans — even if seemingly minor.
-   - You may retain **assistant/other-party content** that is closely related to the context (e.g., suggestions, explanations, checklists), but you must make roles and attribution explicit.
-   - Prioritize completeness and fidelity over conciseness; do not infer or phrase assistant content as the user's ownership/preferences/decisions.
-   - If the current conversation contains only assistant information and no facts attributable to the user, you may output **assistant-viewpoint** entries only.
-
-5. Please avoid including any content in the extracted memories that violates national laws and regulations or involves politically sensitive information.
-
-Return a valid JSON object with the following structure:
+Return a single valid JSON object with the following structure:
 
 {
   "memory list": [
     {
-      "key": <string, a unique and concise memory title>,
-      "memory_type": <string, "LongTermMemory" or "UserMemory">,
-      "value": <a detailed, self-contained, and unambiguous memory statement — use English if the input conversation is in English, or Chinese if the conversation is in Chinese>,
-      "tags": <a list of relevant thematic keywords (e.g., ["deadline", "team", "planning"])>
+      "key": <string, a unique, concise memory title>,
+      "memory_type": <string, Either "LongTermMemory" or "UserMemory">,
+      "value": <A detailed, self-contained, and unambiguous memory statement — written in English if the input conversation is in English, or in Chinese if the conversation is in Chinese>,
+      "tags": <A list of relevant thematic keywords (e.g., ["deadline", "team", "planning"])>
     },
     ...
   ],
-  "summary": <a natural paragraph summarizing the above memories from the user's perspective, 120–200 words, in the same language as the input>
+  "summary": <a natural paragraph summarizing the above memories from user's perspective, 120–200 words, same language as the input>
 }
 
 Language rules:
-- The `key`, `value`, `tags`, and `summary` fields must match the primary language of the input conversation. **If the input is Chinese, output in Chinese.**
+- The `key`, `value`, `tags`, `summary` fields must match the mostly used language of the input conversation.  **如果输入是中文，请输出中文**
 - Keep `memory_type` in English.
+
+${custom_tags_prompt}
 
 Example:
 Conversation:
 user: [June 26, 2025 at 3:00 PM]: Hi Jerry! Yesterday at 3 PM I had a meeting with my team about the new project.
 assistant: Oh Tom! Do you think the team can finish by December 15?
-user: [June 26, 2025 at 3:00 PM]: I’m worried. The backend won’t be done until December 10, so testing will be tight.
+user: [June 26, 2025 at 3:00 PM]: I’m worried. The backend won’t be done until
+December 10, so testing will be tight.
 assistant: [June 26, 2025 at 3:00 PM]: Maybe propose an extension?
 user: [June 26, 2025 at 4:21 PM]: Good idea. I’ll raise it in tomorrow’s 9:30 AM meeting—maybe shift the deadline to January 5.
 
@@ -60,62 +56,51 @@ Output:
     {
         "key": "Initial project meeting",
         "memory_type": "LongTermMemory",
-        "value": "[user-Tom viewpoint] On June 25, 2025 at 3:00 PM, Tom met with the team to discuss a new project. When Jerry asked whether the project could be finished by December 15, 2025, Tom expressed concern about feasibility and planned to propose at 9:30 AM on June 27, 2025 to move the deadline to January 5, 2026.",
+        "value": "On June 25, 2025 at 3:00 PM, Tom held a meeting with their team to discuss a new project. The conversation covered the timeline and raised concerns about the feasibility of the December 15, 2025 deadline.",
         "tags": ["project", "timeline", "meeting", "deadline"]
     },
     {
-        "key": "Jerry’s suggestion about the deadline",
-        "memory_type": "LongTermMemory",
-        "value": "[assistant-Jerry viewpoint] Jerry questioned the December 15 deadline and suggested considering an extension.",
-        "tags": ["deadline change", "suggestion"]
-    }
+        "key": "Planned scope adjustment",
+        "memory_type": "UserMemory",
+        "value": "Tom planned to suggest in a meeting on June 27, 2025 at 9:30 AM that the team should prioritize features and propose shifting the project deadline to January 5, 2026.",
+        "tags": ["planning", "deadline change", "feature prioritization"]
+    },
   ],
-  "summary": "Tom is currently working on a tight-schedule project. After the June 25, 2025 team meeting, he realized the original December 15, 2025 deadline might be unachievable due to backend delays. Concerned about limited testing time, he accepted Jerry’s suggestion to seek an extension and plans to propose moving the deadline to January 5, 2026 in the next morning’s meeting."
+  "summary": "Tom is currently focused on managing a new project with a tight schedule. After a team meeting on June 25, 2025, he realized the original deadline of December 15 might not be feasible due to backend delays. Concerned about insufficient testing time, he welcomed Jerry’s suggestion of proposing an extension. Tom plans to raise the idea of shifting the deadline to January 5, 2026 in the next morning’s meeting. His actions reflect both stress about timelines and a proactive, team-oriented problem-solving approach."
 }
 
-Another Example in Chinese (Note: when the user's language is Chinese, you must also output in Chinese):
+Dialogue:
+assistant: [10:30 AM, August 15, 2025]: The book Deep Work you mentioned is
+indeed very suitable for your current situation. The book explains … (omitted). The author suggests setting aside 2–3 hours of focused work blocks each day and turning off all notifications during that time. Considering that you need to submit a report next week, you could try using the 9:00–11:00 AM time slot for focused work.
 
-对话（节选）：
-user｜2025-07-12 19:30：下个月同事婚礼，要买条裙子，预算1500内，别太暴露。
-assistant｜19:32
-：了解～婚礼场合建议中长款，端庄一些。可以看法式茶歇/直筒/裹身三路。颜色上，奶油白、浅粉、雾霾蓝都适合；面料可看醋酸/真丝混纺（垂感好但需干洗）。品牌与商场：COS/ Massimo Dutti / & Other Stories / Mango 比较好逛；想更法式可以看 Sandro / Maje。 我记得你很喜欢Maje？
-user｜19:35：不喜欢亮色。国贸方便。
-assistant｜19:37：那亮度就压低些：雾霾蓝、藕粉、燕麦米白更稳。国贸有 COS / Massimo Dutti / &OS；可以先看 COS 直筒或裹身，再去 MD 看藕粉/雾霾蓝。搭配上，薄披肩/小西装都能压场。
-user｜19:40：165cm，S码；最好有口袋。
-assistant｜19:42：OK。版型避开大摆+高开衩，选直筒或轻A字更稳；若要口袋，COS直筒一些款有；开衩别太高，及小腿肚附近即可。鞋包：中跟裸色鞋 + 小号手拿包。
-user｜19:47：本来想茶歇A字，但雾霾蓝直筒也行。
-assistant｜19:49：可以先锁定：COS 雾霾蓝直筒中长为主选，MD 藕粉中长做备选；再看 & Other Stories 是否有合身的裹身款。
-user｜19:52：行，周六（7/19）去国贸试，合适就买。
-assistant｜19:54：记得看肩带可调/有无内衬，醋酸/真丝优先干洗；准备同色安全裤/防走光贴。如果当天没货，可下单调货或线上下单门店自提。
-
+Output:
 {
   "memory list": [
     {
-      "key": "参加婚礼购买裙子",
-      "memory_type": "UserMemory",
-      "value": "[user观点]用户计划于约2025年8月参加同事婚礼（具体日期不详），预算不超过1500元，整体风格不宜暴露；用户已决定在2025-07-19于国贸试穿并视合适即购买。",
-      "tags": ["婚礼", "预算", "国贸", "计划"]
-    },
-    {
-      "key": "审美与版型偏好",
-      "memory_type": "UserMemory",
-      "value": "[user观点]用户不喜欢亮色，倾向低亮度色系；裙装偏好端庄的中长款，接受直筒或轻A字。",
-      "tags": ["偏好", "颜色", "版型"]
-    },
-    {
-      "key": "体型尺码",
-      "memory_type": "UserMemory",
-      "value": [user观点]"用户身高约165cm、常穿S码",
-      "tags": ["体型", "尺码"]
-    },
-    {
-      "key": "关于用户选购裙子的建议",
+      "key": "Deep Work Book Recommendation",
       "memory_type": "LongTermMemory",
-      "value": "[assistant观点]assistant在用户询问婚礼穿着时，建议在国贸优先逛COS查看雾霾蓝直筒中长为主选，Massimo Dutti藕粉中长为备选；该建议与用户“国贸方便”“雾霾蓝直筒也行”的回应相一致，另外assistant也提到user喜欢Maje，但User并未回应或证实该说法。",
-      "tags": ["婚礼穿着", "门店", "选购路线"]
+      "value": "On August 15, 2025, the assistant recommended the book 'Deep Work' to the user and introduced its suggestion of reserving 2–3 hours per day for focused work while turning off all notifications. Based on the user's need to submit a report the following week, the assistant also suggested trying 9:00–11:00 AM as a focused work time block.",
+      "tags": ["book recommendation", "deep work", "time management", "report"]
     }
   ],
-  "summary": "用户计划在约2025年8月参加同事婚礼，预算≤1500并偏好端庄的中长款；确定于2025-07-19在国贸试穿。其长期画像显示：不喜欢亮色、偏好低亮度色系与不过分暴露的版型，身高约165cm、S码且偏好裙装带口袋。助手提出的国贸选购路线以COS雾霾蓝直筒中长为主选、MD藕粉中长为备选，且与用户回应一致，为线下试穿与购买提供了明确路径。"
+  "summary": "The assistant recommended the book 'Deep Work' to the user and introduced the work methods discussed in the book."
+}
+
+Note: When the dialogue contains only assistant messages, phrasing such as
+“assistant recommended” or “assistant suggested” should be used, rather than incorrectly attributing the content to the user’s statements or plans.
+
+Another Example in Chinese (注意: 当user的语言为中文时，你就需要也输出中文)：
+{
+  "memory list": [
+    {
+      "key": "项目会议",
+      "memory_type": "LongTermMemory",
+      "value": "在2025年6月25日下午3点，Tom与团队开会讨论了新项目，涉及时间表，并提出了对12月15日截止日期可行性的担忧。",
+      "tags": ["项目", "时间表", "会议", "截止日期"]
+    },
+    ...
+  ],
+  "summary": "Tom 目前专注于管理一个进度紧张的新项目..."
 }
 
 Always respond in the same language as the conversation.
@@ -130,10 +115,7 @@ SIMPLE_STRUCT_MEM_READER_PROMPT_ZH = """您是记忆提取专家。
 
 请执行以下操作：
 1. 识别反映用户经历、信念、关切、决策、计划或反应的信息——包括用户认可或回应的来自助手的有意义信息。
-如果消息来自用户，请提取与用户相关的观点；如果来自助手，则在表达的时候表明记忆归属方，未经用户明确认可的信息不要与用户本身的观点混淆。
-   - **用户观点**：仅记录由**用户亲口陈述、明确认可或自己作出承诺**的信息。
-   - **助手观点**：仅记录由**助手/另一方亲口陈述、明确认可或自己作出承诺**的信息。
-   - **互不越界**：不得将助手提出的需求清单/建议/观点改写为用户的“拥有/偏好/决定”；也不得把用户的想法写成助手的观点。
+如果消息来自用户，请提取与用户相关的记忆；如果来自助手，则仅提取用户认可或回应的事实性记忆。
 
 2. 清晰解析所有时间、人物和事件的指代：
    - 如果可能，使用消息时间戳将相对时间表达（如“昨天”、“下周五”）转换为绝对日期。
@@ -147,10 +129,9 @@ SIMPLE_STRUCT_MEM_READER_PROMPT_ZH = """您是记忆提取专家。
 例如，写“用户感到疲惫……”而不是“我感到疲惫……”。
 
 4. 不要遗漏用户可能记住的任何信息。
-   - 包括用户的关键经历、想法、情绪反应和计划——即使看似微小。
-   - 同时允许保留与语境密切相关的**助手/另一方的内容**（如建议、说明、清单），但须明确角色与归因。
-   - 优先考虑完整性和保真度，而非简洁性；不得将助手内容推断或措辞为用户拥有/偏好/决定。
-   - 若当前对话中仅出现助手信息而无可归因于用户的事实，可仅输出**助手观点**条目。
+   - 包括所有关键经历、想法、情绪反应和计划——即使看似微小。
+   - 优先考虑完整性和保真度，而非简洁性。
+   - 不要泛化或跳过对用户具有个人意义的细节。
 
 5. 请避免在提取的记忆中包含违反国家法律法规或涉及政治敏感的信息。
 
@@ -173,6 +154,8 @@ SIMPLE_STRUCT_MEM_READER_PROMPT_ZH = """您是记忆提取专家。
 - `key`、`value`、`tags`、`summary` 字段必须与输入对话的主要语言一致。**如果输入是中文，请输出中文**
 - `memory_type` 保持英文。
 
+${custom_tags_prompt}
+
 示例：
 对话：
 user: [2025年6月26日下午3:00]：嗨Jerry！昨天下午3点我和团队开了个会，讨论新项目。
@@ -187,66 +170,50 @@ user: [2025年6月26日下午4:21]：好主意。我明天上午9:30的会上提
     {
         "key": "项目初期会议",
         "memory_type": "LongTermMemory",
-        "value": "[user-Tom观点]2025年6月25日下午3:00，Tom与团队开会讨论新项目。当Jerry
-        询问该项目能否在2025年12月15日前完成时，Tom对此日期前完成的可行性表达担忧，并计划在2025年6月27日上午9:30
-        提议将截止日期推迟至2026年1月5日。",
+        "value": "2025年6月25日下午3:00，Tom与团队开会讨论新项目。会议涉及时间表，并提出了对2025年12月15日截止日期可行性的担忧。",
         "tags": ["项目", "时间表", "会议", "截止日期"]
     },
     {
-        "key": "Jerry对新项目截止日期的建议",
-        "memory_type": "LongTermMemory",
-        "value": "[assistant-Jerry观点]Jerry对Tom的新项目截止日期提出疑问、并提议Tom考虑延期。",
-        "tags": ["截止日期变更", "建议"]
+        "key": "计划调整范围",
+        "memory_type": "UserMemory",
+        "value": "Tom计划在2025年6月27日上午9:30的会议上建议团队优先处理功能，并提议将项目截止日期推迟至2026年1月5日。",
+        "tags": ["计划", "截止日期变更", "功能优先级"]
     }
   ],
-  "summary": "Tom目前正在做一个进度紧张的新项目。在2025年6月25日的团队会议后，他意识到原定2025年12月15
-  日的截止日期可能无法实现，因为后端会延迟。由于担心测试时间不足，他接受了Jerry提出的延期建议，计划在次日早上的会议上提出将截止日期推迟至2026
-  年1月5日。"
+  "summary": "Tom目前正专注于管理一个进度紧张的新项目。在2025年6月25日的团队会议后，他意识到原定2025年12月15日的截止日期可能无法实现，因为后端会延迟。由于担心测试时间不足，他接受了Jerry提出的延期建议。Tom计划在次日早上的会议上提出将截止日期推迟至2026年1月5日。他的行为反映出对时间线的担忧，以及积极、以团队为导向的问题解决方式。"
 }
 
-另一个中文示例（注意：当用户语言为中文时，您也需输出中文）：
+对话：
+assistant: [2025年8月15日上午10:30]:
+你提到的那本《深度工作》确实很适合你现在的情况。这本书讲了......(略),作者建议每天留出2-3
+小时的专注时间块，期间关闭所有通知。考虑到你下周要交的报告，可以试试早上9点到11点这个时段。
 
-对话（节选）：
-user｜2025-07-12 19:30：下个月同事婚礼，要买条裙子，预算1500内，别太暴露。
-assistant｜19:32
-：了解～婚礼场合建议中长款，端庄一些。可以看法式茶歇/直筒/裹身三路。颜色上，奶油白、浅粉、雾霾蓝都适合；面料可看醋酸/真丝混纺（垂感好但需干洗）。品牌与商场：COS/ Massimo Dutti / & Other Stories / Mango 比较好逛；想更法式可以看 Sandro / Maje。 我记得你很喜欢Maje？
-user｜19:35：不喜欢亮色。国贸方便。
-assistant｜19:37：那亮度就压低些：雾霾蓝、藕粉、燕麦米白更稳。国贸有 COS / Massimo Dutti / &OS；可以先看 COS 直筒或裹身，再去 MD 看藕粉/雾霾蓝。搭配上，薄披肩/小西装都能压场。
-user｜19:40：165cm，S码；最好有口袋。
-assistant｜19:42：OK。版型避开大摆+高开衩，选直筒或轻A字更稳；若要口袋，COS直筒一些款有；开衩别太高，及小腿肚附近即可。鞋包：中跟裸色鞋 + 小号手拿包。
-user｜19:47：本来想茶歇A字，但雾霾蓝直筒也行。
-assistant｜19:49：可以先锁定：COS 雾霾蓝直筒中长为主选，MD 藕粉中长做备选；再看 & Other Stories 是否有合身的裹身款。
-user｜19:52：行，周六（7/19）去国贸试，合适就买。
-assistant｜19:54：记得看肩带可调/有无内衬，醋酸/真丝优先干洗；准备同色安全裤/防走光贴。如果当天没货，可下单调货或线上下单门店自提。
-
+输出：
 {
   "memory list": [
     {
-      "key": "参加婚礼购买裙子",
-      "memory_type": "UserMemory",
-      "value": "[user观点]用户计划于约2025年8月参加同事婚礼（具体日期不详），预算不超过1500元，整体风格不宜暴露；用户已决定在2025-07-19于国贸试穿并视合适即购买。",
-      "tags": ["婚礼", "预算", "国贸", "计划"]
-    },
-    {
-      "key": "审美与版型偏好",
-      "memory_type": "UserMemory",
-      "value": "[user观点]用户不喜欢亮色，倾向低亮度色系；裙装偏好端庄的中长款，接受直筒或轻A字。",
-      "tags": ["偏好", "颜色", "版型"]
-    },
-    {
-      "key": "体型尺码",
-      "memory_type": "UserMemory",
-      "value": [user观点]"用户身高约165cm、常穿S码",
-      "tags": ["体型", "尺码"]
-    },
-    {
-      "key": "关于用户选购裙子的建议",
+      "key": "深度工作书籍推荐",
       "memory_type": "LongTermMemory",
-      "value": "[assistant观点]assistant在用户询问婚礼穿着时，建议在国贸优先逛COS查看雾霾蓝直筒中长为主选，Massimo Dutti藕粉中长为备选；该建议与用户“国贸方便”“雾霾蓝直筒也行”的回应相一致，另外assistant也提到user喜欢Maje，但User并未回应或证实该说法。",
-      "tags": ["婚礼穿着", "门店", "选购路线"]
+      "value": "2025年8月15日助手向用户推荐了《深度工作》一书，并介绍了书中建议的每天留出2-3小时专注时间块、关闭所有通知的方法。助手还根据用户下周需要提交报告的情况，建议用户尝试早上9点到11点作为专注时段。",
+      "tags": ["书籍推荐", "深度工作", "时间管理", "报告"]
     }
   ],
-  "summary": "用户计划在约2025年8月参加同事婚礼，预算≤1500并偏好端庄的中长款；确定于2025-07-19在国贸试穿。其长期画像显示：不喜欢亮色、偏好低亮度色系与不过分暴露的版型，身高约165cm、S码且偏好裙装带口袋。助手提出的国贸选购路线以COS雾霾蓝直筒中长为主选、MD藕粉中长为备选，且与用户回应一致，为线下试穿与购买提供了明确路径。"
+  "summary": "助手向用户推荐了《深度工作》一书，并介绍了了其中的工作方法"
+}
+注意：当对话仅有助手消息时，应使用"助手推荐"、"助手建议"等表述，而非将其错误归因为用户的陈述或计划。
+
+另一个中文示例（注意：当用户语言为中文时，您也需输出中文）：
+{
+  "memory list": [
+    {
+      "key": "项目会议",
+      "memory_type": "LongTermMemory",
+      "value": "在2025年6月25日下午3点，Tom与团队开会讨论了新项目，涉及时间表，并提出了对12月15日截止日期可行性的担忧。",
+      "tags": ["项目", "时间表", "会议", "截止日期"]
+    },
+    ...
+  ],
+  "summary": "Tom 目前专注于管理一个进度紧张的新项目..."
 }
 
 请始终使用与对话相同的语言进行回复。
@@ -288,11 +255,12 @@ Language rules:
 - The `key`, `value`, `tags`, `summary` fields must match the mostly used language of the input document summaries.  **如果输入是中文，请输出中文**
 - Keep `memory_type` in English.
 
+{custom_tags_prompt}
+
 Document chunk:
 {chunk_text}
 
 Your Output:"""
-
 
 SIMPLE_STRUCT_DOC_READER_PROMPT_ZH = """您是搜索与检索系统的文本分析专家。
 您的任务是处理文档片段，并生成一个结构化的 JSON 对象。
@@ -326,10 +294,216 @@ SIMPLE_STRUCT_DOC_READER_PROMPT_ZH = """您是搜索与检索系统的文本分�
 - `key`、`value`、`tags` 字段必须与输入文档摘要的主要语言一致。**如果输入是中文，请输出中文**
 - `memory_type` 保持英文。
 
+{custom_tags_prompt}
+
+示例：
+输入的文本片段：
+在Kalamang语中，亲属名词在所有格构式中的行为并不一致。名词 esa“父亲”和 ema“母亲”只能在技术称谓（teknonym）中与第三人称所有格后缀共现，而在非技术称谓用法中，带有所有格后缀是不合语法的。相比之下，大多数其他亲属名词并不允许所有格构式，只有极少数例外。
+语料中还发现一种“双重所有格标记”的现象，即名词同时带有所有格后缀和独立的所有格代词。这种构式在语料中极为罕见，其语用功能尚不明确，且多出现在马来语借词中，但也偶尔见于Kalamang本族词。
+此外，黏着词 =kin 可用于表达多种关联关系，包括目的性关联、空间关联以及泛指的群体所有关系。在此类构式中，被标记的通常是施事或关联方，而非被拥有物本身。这一用法显示出 =kin 可能处于近期语法化阶段。
+
+输出：
+{
+  "memory list": [
+    {
+      "key": "亲属名词在所有格构式中的不一致行为",
+      "memory_type": "LongTermMemory",
+      "value": "Kalamang语中的亲属名词在所有格构式中的行为存在显著差异，其中“父亲”(esa)和“母亲”(ema)仅能在技术称谓用法中与第三人称所有格后缀共现，而在非技术称谓中带所有格后缀是不合语法的。",
+      "tags": ["亲属名词", "所有格", "语法限制"]
+    },
+    {
+      "key": "双重所有格标记现象",
+      "memory_type": "LongTermMemory",
+      "value": "语料中存在名词同时带有所有格后缀和独立所有格代词的双重所有格标记构式，但该现象出现频率极低，其具体语用功能尚不明确。",
+      "tags": ["双重所有格", "罕见构式", "语用功能"]
+    },
+    {
+      "key": "双重所有格与借词的关系",
+      "memory_type": "LongTermMemory",
+      "value": "双重所有格标记多见于马来语借词中，但也偶尔出现在Kalamang本族词中，显示该构式并非完全由语言接触触发。",
+      "tags": ["语言接触", "借词", "构式分布"]
+    },
+    {
+      "key": "=kin 的关联功能与语法地位",
+      "memory_type": "LongTermMemory",
+      "value": "黏着词 =kin 用于表达目的性、空间或群体性的关联关系，其标记对象通常为关联方而非被拥有物，这表明 =kin 可能处于近期语法化过程中。",
+      "tags": ["=kin", "关联关系", "语法化"]
+    }
+  ],
+  "summary": "该文本描述了Kalamang语中所有格构式的多样性与不对称性。亲属名词在所有格标记上的限制显示出语义类别内部的分化，而罕见的双重所有格构式则反映了构式层面的不稳定性。同时，=kin 的多功能关联用法及其分布特征为理解该语言的语法化路径提供了重要线索。"
+}
+
 文档片段：
 {chunk_text}
 
 您的输出："""
+
+GENERAL_STRUCT_STRING_READER_PROMPT = """You are a text analysis expert for search and retrieval systems.
+Your task is to parse a text chunk into multiple structured memories for long-term storage and precise future retrieval. The text chunk may contain information from various sources, including conversations, plain text, speech-to-text transcripts, tables, tool documentation, and more.
+
+Please perform the following steps:
+
+1. Decompose the text chunk into multiple memories that are mutually independent, minimally redundant, and each fully expresses a single information point. Together, these memories should cover different aspects of the document so that a reader can understand all core content without reading the original text.
+
+2. Memory splitting and deduplication rules (very important):
+2.1 Each memory must express only one primary information point, such as:
+   - A fact
+   - A clear conclusion or judgment
+   - A decision or action
+   - An important background or condition
+   - A notable emotional tone or attitude
+   - A plan, risk, or downstream impact
+
+2.2 Do not force multiple information points into a single memory.
+
+2.3 Do not generate memories that are semantically repetitive or highly overlapping:
+   - If two memories describe the same fact or judgment, retain only the one with more complete information.
+   - Do not create “different” memories solely by rephrasing.
+
+2.4 There is no fixed upper or lower limit on the number of memories; the count should be determined naturally by the information density of the text.
+
+3. Information parsing requirements:
+3.1 Identify and clearly specify all important:
+   - Times (distinguishing event time from document recording time)
+   - People (resolving pronouns and aliases to explicit identities)
+   - Organizations, locations, and events
+
+3.2 Explicitly resolve all references to time, people, locations, and events:
+   - When context allows, convert relative time expressions (e.g., “last year,” “next quarter”) into absolute dates.
+   - If uncertainty exists, explicitly state it (e.g., “around 2024,” “exact date unknown”).
+   - Include specific locations when mentioned.
+   - Resolve all pronouns, aliases, and ambiguous references to full names or clear identities.
+   - Disambiguate entities with the same name when necessary.
+
+4. Writing and perspective rules:
+   - Always write in the third person, clearly referring to subjects or content, and avoid first-person expressions (“I,” “we,” “my”).
+   - Use precise, neutral language and do not infer or introduce information not explicitly stated in the text.
+
+Return a valid JSON object with the following structure:
+
+{
+  "memory list": [
+    {
+      "key": <string, a concise and unique memory title>,
+      "memory_type": "LongTermMemory",
+      "value": <a complete, clear, and self-contained memory description; use English if the input is English, and Chinese if the input is Chinese>,
+      "tags": <a list of topic keywords highly relevant to this memory>
+    },
+    ...
+  ],
+  "summary": <a holistic summary describing how these memories collectively reflect the document’s core content and key points, using the same language as the input text>
+}
+
+Language rules:
+- The `key`, `value`, `tags`, and `summary` fields must use the same primary language as the input document. **If the input is Chinese, output must be in Chinese.**
+- `memory_type` must remain in English.
+
+{custom_tags_prompt}
+
+Example:
+Text chunk:
+
+In Kalamang, kinship terms show uneven behavior in possessive constructions. The nouns esa ‘father’ and ema ‘mother’ can only co-occur with a third-person possessive suffix when used as teknonyms; outside of such contexts, possessive marking is ungrammatical. Most other kinship terms do not allow possessive constructions, with only a few marginal exceptions.
+
+The corpus also contains rare cases of double possessive marking, in which a noun bears both a possessive suffix and a free possessive pronoun. This construction is infrequent and its discourse function remains unclear. While it appears more often with Malay loanwords, it is not restricted to borrowed vocabulary.
+
+In addition, the clitic =kin encodes a range of associative relations, including purposive, spatial, and collective ownership. In such constructions, the marked element typically corresponds to the possessor or associated entity rather than the possessed item, suggesting that =kin may be undergoing recent grammaticalization.
+
+Output:
+{
+  "memory list": [
+    {
+      "key": "Asymmetric possessive behavior of kinship terms",
+      "memory_type": "LongTermMemory",
+      "value": "In Kalamang, kinship terms do not behave uniformly in possessive constructions: ‘father’ (esa) and ‘mother’ (ema) require a teknonymic context to appear with a third-person possessive suffix, whereas possessive marking is otherwise ungrammatical.",
+      "tags": ["kinship terms", "possessive constructions", "grammatical constraints"]
+    },
+    {
+      "key": "Rare double possessive marking",
+      "memory_type": "LongTermMemory",
+      "value": "The language exhibits a rare construction in which a noun carries both a possessive suffix and a free possessive pronoun, though the pragmatic function of this double marking remains unclear.",
+      "tags": ["double possessive", "rare constructions", "pragmatics"]
+    },
+    {
+      "key": "Distribution of double possessives across lexicon",
+      "memory_type": "LongTermMemory",
+      "value": "Double possessive constructions occur more frequently with Malay loanwords but are also attested with indigenous Kalamang vocabulary, indicating that the pattern is not solely contact-induced.",
+      "tags": ["loanwords", "language contact", "distribution"]
+    },
+    {
+      "key": "Associative clitic =kin",
+      "memory_type": "LongTermMemory",
+      "value": "The clitic =kin marks various associative relations, including purposive, spatial, and collective ownership, typically targeting the possessor or associated entity, and appears to reflect an ongoing process of grammaticalization.",
+      "tags": ["=kin", "associative relations", "grammaticalization"]
+    }
+  ],
+  "summary": "The text outlines key properties of possessive and associative constructions in Kalamang. Kinship terms exhibit asymmetric grammatical behavior, rare double possessive patterns suggest constructional instability, and the multifunctional clitic =kin provides evidence for evolving associative marking within the language’s grammar."
+}
+
+Text chunk:
+{chunk_text}
+
+Your output:
+"""
+
+GENERAL_STRUCT_STRING_READER_PROMPT_ZH = """您是搜索与检索系统的文本分析专家。
+您的任务是将一个文本片段解析为【多条结构化记忆】，用于长期存储和后续精准检索，这里的文本片段可能包含各种对话、纯文本、语音转录的文字、表格、工具说明等等的信息。
+
+请执行以下操作：
+1. 将文档片段拆解为若干条【相互独立、尽量不重复、各自完整表达单一信息点】的记忆。这些记忆应共同覆盖文档的不同方面，使读者无需阅读原文即可理解该文档的全部核心内容。
+2. 记忆拆分与去重规则（非常重要）：
+2.1 每一条记忆应只表达【一个主要信息点】：
+   - 一个事实
+   - 一个明确结论或判断
+   - 一个决定或行动
+   - 一个重要背景或条件
+   - 一个显著的情感基调或态度
+   - 一个计划、风险或后续影响
+2.2 不要将多个信息点强行合并到同一条记忆中。
+2.3 不要生成语义重复或高度重叠的记忆：
+   - 如果两条记忆表达的是同一事实或同一判断，只保留信息更完整的一条。
+   - 不允许仅通过措辞变化来制造“不同”的记忆。
+2.4 记忆条数不设固定上限或下限，应由文档信息密度自然决定。
+3. 信息解析要求
+3.1 识别并明确所有重要的：
+   - 时间（区分事件发生时间与文档记录时间）
+   - 人物（解析代词、别名为明确身份）
+   - 组织、地点、事件
+3.2 清晰解析所有时间、人物、地点和事件的指代：
+   - 如果上下文允许，将相对时间表达（如“去年”、“下一季度”）转换为绝对日期。
+   - 如果存在不确定性，需明确说明（例如，“约2024年”，“具体日期不详”）。
+   - 若提及具体地点，请包含在内。
+   - 将所有代词、别名和模糊指代解析为全名或明确身份。
+   - 如有同名实体，需加以区分。
+4. 写作与视角规则
+   - 始终以第三人称视角撰写，清晰指代主题或内容，避免使用第一人称（“我”、“我们”、“我的”）。
+   - 语言应准确、中性，不自行引申文档未明确表达的内容。
+
+返回一个有效的 JSON 对象，结构如下：
+{
+  "memory list": [
+    {
+      "key": <字符串，简洁且唯一的记忆标题>,
+      "memory_type": "LongTermMemory",
+      "value": <一段完整、清晰、可独立理解的记忆描述；若输入为中文则使用中文，若为英文则使用英文>,
+      "tags": <与该记忆高度相关的主题关键词列表>
+    },
+    ...
+  ],
+  "summary": <一段整体性总结，概括这些记忆如何共同反映文档的核心内容与重点，语言与输入文档一致>
+}
+
+语言规则：
+- `key`、`value`、`tags`、`summary` 字段必须与输入文档摘要的主要语言一致。**如果输入是中文，请输出中文**
+- `memory_type` 保持英文。
+
+{custom_tags_prompt}
+
+文档片段：
+{chunk_text}
+
+您的输出："""
+
 
 SIMPLE_STRUCT_MEM_READER_EXAMPLE = """Example:
 Conversation:
@@ -417,3 +591,280 @@ user: [2025年6月26日下午4:21]：好主意。我明天上午9:30的会上提
 }
 
 """
+
+
+CUSTOM_TAGS_INSTRUCTION = """Output tags can refer to the following tags:
+{custom_tags}
+You can choose tags from the above list that are relevant to the memory. Additionally, you can freely add tags based on the content of the memory."""
+
+
+CUSTOM_TAGS_INSTRUCTION_ZH = """输出tags可以参考下列标签：
+{custom_tags}
+你可以选择与memory相关的在上述列表中可以加入tags，同时你可以根据memory的内容自由添加tags。"""
+
+
+IMAGE_ANALYSIS_PROMPT_EN = """You are an intelligent memory assistant. Analyze the provided image and extract meaningful information that should be remembered.
+
+Please extract:
+1. **Visual Content**: What objects, people, scenes, or text are visible in the image?
+2. **Context**: What is the context or situation depicted?
+3. **Key Information**: What important details, facts, or information can be extracted?
+4. **User Relevance**: What aspects of this image might be relevant to the user's memory?
+
+Return a valid JSON object with the following structure:
+{
+  "memory list": [
+    {
+      "key": <string, a unique and concise memory title>,
+      "memory_type": <string, "LongTermMemory" or "UserMemory">,
+      "value": <a detailed, self-contained description of what should be remembered from the image>,
+      "tags": <a list of relevant keywords (e.g., ["image", "visual", "scene", "object"])>
+    },
+    ...
+  ],
+  "summary": <a natural paragraph summarizing the image content, 120–200 words>
+}
+
+Language rules:
+- The `key`, `value`, `tags`, `summary` and `memory_type` fields should match the language of the user's context if available, otherwise use English.
+- Keep `memory_type` in English.
+
+Focus on extracting factual, observable information from the image. Avoid speculation unless clearly relevant to user memory."""
+
+
+IMAGE_ANALYSIS_PROMPT_ZH = """您是一个智能记忆助手。请分析提供的图像并提取应该被记住的有意义信息。
+
+请提取：
+1. **视觉内容**：图像中可见的物体、人物、场景或文字是什么？
+2. **上下文**：图像描绘了什么情境或情况？
+3. **关键信息**：可以提取哪些重要的细节、事实或信息？
+4. **用户相关性**：图像的哪些方面可能与用户的记忆相关？
+
+返回一个有效的 JSON 对象，格式如下：
+{
+  "memory list": [
+    {
+      "key": <字符串，一个唯一且简洁的记忆标题>,
+      "memory_type": <字符串，"LongTermMemory" 或 "UserMemory">,
+      "value": <一个详细、自包含的描述，说明应该从图像中记住什么>,
+      "tags": <相关关键词列表（例如：["图像", "视觉", "场景", "物体"]）>
+    },
+    ...
+  ],
+  "summary": <一个自然段落，总结图像内容，120-200字>
+}
+
+语言规则：
+- `key`、`value`、`tags`、`summary` 和 `memory_type` 字段应该与用户上下文的语言匹配（如果可用），否则使用中文。
+- `memory_type` 保持英文。
+
+专注于从图像中提取事实性、可观察的信息。除非与用户记忆明显相关，否则避免推测。"""
+
+
+SIMPLE_STRUCT_REWRITE_MEMORY_PROMPT_BACKUP = """
+You are a strict, language-preserving memory validator and rewriter.
+
+Your task is to eliminate hallucinations and tighten memories by grounding them strictly in the user’s explicit messages. Memories must be factual, unambiguous, and free of any inferred or speculative content.
+
+Rules:
+1. **Language Consistency**: Keep the exact original language of each memory—no translation or language switching.
+2. **Strict Factual Grounding**: Include only what the user explicitly stated. Remove or flag anything not directly present in the messages—no assumptions, interpretations, predictions, or generalizations NOT supported by the text. However, **you MUST retain specific details, reasons, explanations, and feelings if the user explicitly expressed them.** Minor formatting corrections (e.g., adding missing spaces between names, fixing obvious typos) are ALLOWED.
+4. **Hallucination Removal**:
+- If a memory contains **any content not supported by the user's explicit statements**, it must be rewritten.
+- **Do NOT remove** details, reasons, or explanations that the user explicitly provided, even if they are subjective or specific.
+- Do **not** rephrase inferences as facts. Instead, either:
+- Remove the unsupported part and retain only the grounded core.
+5. **No Change if Fully Grounded**: If the memory is concise, unambiguous, and fully supported by the user’s messages, keep it unchanged.
+6. **Timestamp Exception**: Memories may include timestamps (e.g., dates like "On December 19, 2026") derived from conversation metadata. If the date in the memory is likely the conversation time (even if not shown in the `messages` list), do NOT treat it as a hallucination or require a rewrite.
+
+Inputs:
+messages:
+{messages_inline}
+
+memories:
+{memories_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching input memory indices.
+- Each value must be: {{ "need_rewrite": boolean, "rewritten": string, "reason": string }}
+- The "reason" must be brief and precise, e.g.:
+  - "contains unsupported inference ...."
+  - "fully grounded and concise"
+
+Important: Output **only** the JSON. No extra text, explanations, markdown, or fields.
+"""
+
+SIMPLE_STRUCT_REWRITE_MEMORY_PROMPT = """
+You are a strict, language-preserving memory validator and rewriter.
+
+Your task is to eliminate hallucinations and tighten memories by grounding them strictly in the user’s explicit messages. Memories must be factual, unambiguous, and free of any inferred or speculative content.
+
+Rules:
+1. **Language Consistency**: Keep the exact original language of each memory—no translation or language switching.
+2. **Strict Factual Grounding**: Include only what is explicitly stated by the user in messages marked as [user]. Remove or flag anything not directly present in the user’s utterances—no assumptions, interpretations, predictions, generalizations, or content originating solely from [assistant].
+3. **Source Attribution Requirement**:
+   - Every memory must be clearly traceable to its source:
+     - If a fact appears **only in [assistant] messages** and **is not affirmed by [user]**, label it as “[assistant] memory”.
+     - If [assistant] states something and [user] explicitly contradicts or denies it, label it as “[assistant] memory, but [user] [brief quote or summary of denial]”.
+     - If a fact is stated by [user] —whether or not [assistant] also mentions it— it is attributed to “[user]” and may be retained without qualification.
+4. **Timestamp Exception**: Memories may include timestamps (e.g., "On December 19, 2026") derived from conversation metadata. If such a date likely reflects the conversation time (even if not in the `messages` list), do NOT treat it as hallucinated—but still attribute it to “[user]” only if the user mentioned or confirmed the date.
+
+Inputs:
+messages:
+{messages_inline}
+
+memories:
+{memories_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching input memory indices.
+- Each value must be: {{ "need_rewrite": boolean, "rewritten": string, "reason": string }}
+- The "reason" must be brief and precise, e.g.:
+  - "contains unsupported inference from [assistant]"
+  - "[assistant] memory, but [user] said 'I don't have a dog'"
+  - "fully grounded in [user]"
+
+Important: Output **only** the JSON. No extra text, explanations, markdown, or fields.
+"""
+
+SIMPLE_STRUCT_REWRITE_MEMORY_USER_ONLY_PROMPT = """
+You are a strict, language-preserving memory validator and rewriter.
+
+Your task is to eliminate hallucinations and tighten memories by grounding them strictly in the user’s explicit messages. Memories must be factual, unambiguous, and free of any inferred or speculative content.
+
+Note: The provided messages contain only user messages. The assistant's responses are intentionally omitted, not because the assistant didn't answer, but to focus strictly on validating memories against user input.
+
+Rules:
+1. **Language Consistency**: Keep the exact original language of each memory—no translation or language switching.
+2. **Strict Factual Grounding**: Include only what the user explicitly stated. Remove or flag anything not directly present in the messages—no assumptions, interpretations, predictions, or generalizations NOT supported by the text. However, **you MUST retain specific details, reasons, explanations, and feelings if the user explicitly expressed them.** Minor formatting corrections (e.g., adding missing spaces between names, fixing obvious typos) are ALLOWED.
+4. **Hallucination Removal**:
+- If a memory contains **any content not supported by the user's explicit statements**, it must be rewritten.
+- **Do NOT remove** details, reasons, or explanations that the user explicitly provided, even if they are subjective or specific.
+- Do **not** rephrase inferences as facts. Instead, either:
+- Remove the unsupported part and retain only the grounded core.
+5. **No Change if Fully Grounded**: If the memory is concise, unambiguous, and fully supported by the user’s messages, keep it unchanged.
+6. **Timestamp Exception**: Memories may include timestamps (e.g., dates like "On December 19, 2026") derived from conversation metadata. If the date in the memory is likely the conversation time (even if not shown in the `messages` list), do NOT treat it as a hallucination or require a rewrite.
+
+Inputs:
+messages:
+{messages_inline}
+
+memories:
+{memories_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching input memory indices.
+- Each value must be: {{ "need_rewrite": boolean, "rewritten": string, "reason": string }}
+- The "reason" must be brief and precise, e.g.:
+  - "contains unsupported inference ...."
+  - "fully grounded and concise"
+
+Important: Output **only** the JSON. No extra text, explanations, markdown, or fields.
+"""
+
+SIMPLE_STRUCT_REWRITE_MEMORY_PROMPT_BACKUP = """
+You are a strict, language-preserving memory validator and rewriter.
+
+Your task is to eliminate hallucinations and tighten memories by grounding them strictly in the user’s explicit messages. Memories must be factual, unambiguous, and free of any inferred or speculative content.
+
+Rules:
+1. **Language Consistency**: Keep the exact original language of each memory—no translation or language switching.
+2. **Strict Factual Grounding**: Include only what the user explicitly stated. Remove or flag anything not directly present in the messages—no assumptions, interpretations, predictions, or generalizations NOT supported by the text. However, **you MUST retain specific details, reasons, explanations, and feelings if the user explicitly expressed them.** Minor formatting corrections (e.g., adding missing spaces between names, fixing obvious typos) are ALLOWED.
+4. **Hallucination Removal**:
+- If a memory contains **any content not supported by the user's explicit statements**, it must be rewritten.
+- **Do NOT remove** details, reasons, or explanations that the user explicitly provided, even if they are subjective or specific.
+- Do **not** rephrase inferences as facts. Instead, either:
+- Remove the unsupported part and retain only the grounded core.
+5. **No Change if Fully Grounded**: If the memory is concise, unambiguous, and fully supported by the user’s messages, keep it unchanged.
+6. **Timestamp Exception**: Memories may include timestamps (e.g., dates like "On December 19, 2026") derived from conversation metadata. If the date in the memory is likely the conversation time (even if not shown in the `messages` list), do NOT treat it as a hallucination or require a rewrite.
+
+Inputs:
+messages:
+{messages_inline}
+
+memories:
+{memories_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching input memory indices.
+- Each value must be: {{ "need_rewrite": boolean, "rewritten": string, "reason": string }}
+- The "reason" must be brief and precise, e.g.:
+  - "contains unsupported inference ...."
+  - "fully grounded and concise"
+
+Important: Output **only** the JSON. No extra text, explanations, markdown, or fields.
+"""
+
+SIMPLE_STRUCT_HALLUCINATION_FILTER_PROMPT = """
+You are a strict memory validator.
+Your task is to identify and delete hallucinated memories that are not explicitly stated by the user in the provided messages.
+
+Rules:
+1. **User-Only Origin**: Verify facts against USER messages ONLY. If the Assistant repeats a User fact, it is VALID. If the Assistant introduces a new detail (e.g., 'philanthropy') that the User did not explicitly confirm, it is INVALID.
+2. **No Inference Allowed**: Do NOT keep memories based on implication, emotion, preference, or generalization. Only verbatim or direct restatements of user-provided facts are valid. However, minor formatting corrections (e.g., adding missing spaces between names, fixing obvious typos) are ALLOWED.
+3. **Hallucination = Deletion**: If a memory contains any detail not directly expressed by the user, mark it for deletion.
+4. **Timestamp Exception**: Memories may include timestamps (e.g., dates like "On December 19, 2026") derived from conversation metadata. If the date in the memory is likely the conversation time (even if not shown in the `messages` list), do NOT treat it as a hallucination or require a rewrite.
+
+Examples:
+Messages:
+- [user]: I love coding in Python.
+- [assistant]: That's great! I assume you also contribute to open source projects?
+Memory: User enjoys Python and contributes to open source.
+Result: {{"keep": false, "reason": "User never stated they contribute to open source; this came from Assistant's assumption."}}
+
+Messages:
+- [user]: I am tired.
+- [assistant]: I hear you are tired. Rest is important.
+Memory: User stated they are tired.
+Result: {{"keep": true, "reason": "Direct restatement of user input, even if Assistant repeated it."}}
+
+Inputs:
+messages:
+{messages_inline}
+
+memories:
+{memories_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching the input memory indices.
+- Each value must be: {{ "keep": boolean, "reason": string }}
+- "keep": true only if the memory is a direct reflection of the user's explicit words.
+- "reason": brief, factual, and cites missing or unsupported content.
+
+Important: Output **only** the JSON. No extra text, explanations, markdown, or fields.
+"""
+
+
+SIMPLE_STRUCT_ADD_BEFORE_SEARCH_PROMPT = """
+You are a memory manager.
+Your task is to decide if a new memory should be added to the long-term memory, given a list of existing related memories.
+
+Rules:
+1. **Redundancy Check**: If the new memory is completely redundant, already known, or covered by the existing memories, discard it.
+2. **New Information**: If the new memory provides new information, details, or updates compared to the existing memories, keep it.
+3. **Contradiction**: If the new memory contradicts existing memories but seems valid/newer, keep it (updates).
+4. **Context Check**: Use the provided conversation messages to verify if the new memory is grounded in the user's explicit statements.
+
+Inputs:
+Messages:
+{messages_inline}
+
+Candidate Memories (to be evaluated):
+{candidates_inline}
+
+Output Format:
+- Return a JSON object with string keys ("0", "1", "2", ...) matching the input candidate memory indices.
+- Each value must be: {{ "keep": boolean, "reason": string }}
+- "keep": true if the memory should be added.
+- "reason": brief explanation.
+
+Important: Output **only** the JSON. No extra text.
+"""
+
+# Prompt mapping for specialized tasks (e.g., hallucination filtering)
+PROMPT_MAPPING = {
+    "hallucination_filter": SIMPLE_STRUCT_HALLUCINATION_FILTER_PROMPT,
+    "rewrite": SIMPLE_STRUCT_REWRITE_MEMORY_PROMPT,
+    "rewrite_user_only": SIMPLE_STRUCT_REWRITE_MEMORY_USER_ONLY_PROMPT,
+    "add_before_search": SIMPLE_STRUCT_ADD_BEFORE_SEARCH_PROMPT,
+}
