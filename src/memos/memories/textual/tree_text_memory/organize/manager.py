@@ -68,12 +68,14 @@ class MemoryManager:
         self.current_memory_size = {
             "WorkingMemory": 0,
             "LongTermMemory": 0,
+            "RawFileMemory": 0,
             "UserMemory": 0,
         }
         if not memory_size:
             self.memory_size = {
                 "WorkingMemory": 20,
                 "LongTermMemory": 1500,
+                "RawFileMemory": 1500,
                 "UserMemory": 480,
             }
         logger.info(f"MemorySize is {self.memory_size}")
@@ -157,9 +159,14 @@ class MemoryManager:
         graph_node_ids: list[str] = []
 
         for memory in memories:
-            working_id = str(uuid.uuid4())
+            working_id = memory.id if hasattr(memory, "id") else memory.id or str(uuid.uuid4())
 
-            if memory.metadata.memory_type not in ("ToolSchemaMemory", "ToolTrajectoryMemory"):
+            if memory.metadata.memory_type in (
+                "WorkingMemory",
+                "LongTermMemory",
+                "UserMemory",
+                "OuterMemory",
+            ):
                 working_metadata = memory.metadata.model_copy(
                     update={"memory_type": "WorkingMemory"}
                 ).model_dump(exclude_none=True)
@@ -176,8 +183,12 @@ class MemoryManager:
                 "UserMemory",
                 "ToolSchemaMemory",
                 "ToolTrajectoryMemory",
+                "RawFileMemory",
+                "SkillMemory",
             ):
-                graph_node_id = str(uuid.uuid4())
+                graph_node_id = (
+                    memory.id if hasattr(memory, "id") else memory.id or str(uuid.uuid4())
+                )
                 metadata_dict = memory.metadata.model_dump(exclude_none=True)
                 metadata_dict["updated_at"] = datetime.now().isoformat()
 
@@ -307,10 +318,15 @@ class MemoryManager:
         ids: list[str] = []
         futures = []
 
-        working_id = str(uuid.uuid4())
+        working_id = memory.id if hasattr(memory, "id") else memory.id or str(uuid.uuid4())
 
         with ContextThreadPoolExecutor(max_workers=2, thread_name_prefix="mem") as ex:
-            if memory.metadata.memory_type not in ("ToolSchemaMemory", "ToolTrajectoryMemory"):
+            if memory.metadata.memory_type in (
+                "WorkingMemory",
+                "LongTermMemory",
+                "UserMemory",
+                "OuterMemory",
+            ):
                 f_working = ex.submit(
                     self._add_memory_to_db, memory, "WorkingMemory", user_name, working_id
                 )
@@ -321,6 +337,8 @@ class MemoryManager:
                 "UserMemory",
                 "ToolSchemaMemory",
                 "ToolTrajectoryMemory",
+                "RawFileMemory",
+                "SkillMemory",
             ):
                 f_graph = ex.submit(
                     self._add_to_graph_memory,
@@ -372,7 +390,7 @@ class MemoryManager:
         """
         Generalized method to add memory to a graph-based memory type (e.g., LongTermMemory, UserMemory).
         """
-        node_id = str(uuid.uuid4())
+        node_id = memory.id if hasattr(memory, "id") else str(uuid.uuid4())
         # Step 2: Add new node to graph
         metadata_dict = memory.metadata.model_dump(exclude_none=True)
         tags = metadata_dict.get("tags") or []

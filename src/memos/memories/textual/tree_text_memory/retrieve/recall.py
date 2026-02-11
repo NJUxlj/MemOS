@@ -67,6 +67,8 @@ class GraphMemoryRetriever:
             "UserMemory",
             "ToolSchemaMemory",
             "ToolTrajectoryMemory",
+            "RawFileMemory",
+            "SkillMemory",
         ]:
             raise ValueError(f"Unsupported memory scope: {memory_scope}")
 
@@ -77,6 +79,7 @@ class GraphMemoryRetriever:
                 include_embedding=self.include_embedding,
                 user_name=user_name,
                 filter=search_filter,
+                status="activated",
             )
             return [TextualMemoryItem.from_dict(record) for record in working_memories[:top_k]]
 
@@ -247,7 +250,7 @@ class GraphMemoryRetriever:
 
             # Load nodes and post-filter
             node_dicts = self.graph_store.get_nodes(
-                list(candidate_ids), include_embedding=self.include_embedding
+                list(candidate_ids), include_embedding=self.include_embedding, user_name=user_name
             )
 
             final_nodes = []
@@ -277,7 +280,9 @@ class GraphMemoryRetriever:
                     {"field": "key", "op": "in", "value": parsed_goal.keys},
                     {"field": "memory_type", "op": "=", "value": memory_scope},
                 ]
-                key_ids = self.graph_store.get_by_metadata(key_filters, user_name=user_name)
+                key_ids = self.graph_store.get_by_metadata(
+                    key_filters, user_name=user_name, status="activated"
+                )
                 candidate_ids.update(key_ids)
 
             # 2) tag-based OR branch
@@ -286,7 +291,9 @@ class GraphMemoryRetriever:
                     {"field": "tags", "op": "contains", "value": parsed_goal.tags},
                     {"field": "memory_type", "op": "=", "value": memory_scope},
                 ]
-                tag_ids = self.graph_store.get_by_metadata(tag_filters, user_name=user_name)
+                tag_ids = self.graph_store.get_by_metadata(
+                    tag_filters, user_name=user_name, status="activated"
+                )
                 candidate_ids.update(tag_ids)
 
             # No matches → return empty
@@ -385,18 +392,51 @@ class GraphMemoryRetriever:
         if not all_hits:
             return []
 
-        # merge and deduplicate
-        unique_ids = {r["id"] for r in all_hits if r.get("id")}
+        # merge and deduplicate, keeping highest score per ID
+        id_to_score = {}
+        for r in all_hits:
+            rid = r.get("id")
+            if rid:
+                rid = str(rid).strip("\"'")
+                score = r.get("score", 0.0)
+                if rid not in id_to_score or score > id_to_score[rid]:
+                    id_to_score[rid] = score
+
+        # Sort IDs by score (descending) to preserve ranking
+        sorted_ids = sorted(id_to_score.keys(), key=lambda x: id_to_score[x], reverse=True)
+
         node_dicts = (
             self.graph_store.get_nodes(
-                list(unique_ids),
+                sorted_ids,
                 include_embedding=self.include_embedding,
                 cube_name=cube_name,
                 user_name=user_name,
             )
             or []
         )
-        return [TextualMemoryItem.from_dict(n) for n in node_dicts]
+
+        # Restore score-based order and inject scores into metadata
+        id_to_node = {}
+        for n in node_dicts:
+            node_id = n.get("id")
+            if node_id:
+                # Ensure ID is a string and strip any surrounding quotes
+                node_id = str(node_id).strip("\"'")
+                id_to_node[node_id] = n
+
+        ordered_nodes = []
+        for rid in sorted_ids:
+            # Ensure rid is normalized for matching
+            rid_normalized = str(rid).strip("\"'")
+            if rid_normalized in id_to_node:
+                node = id_to_node[rid_normalized]
+                # Inject similarity score as relativity
+                if "metadata" not in node:
+                    node["metadata"] = {}
+                node["metadata"]["relativity"] = id_to_score.get(rid, 0.0)
+                ordered_nodes.append(node)
+
+        return [TextualMemoryItem.from_dict(n) for n in ordered_nodes]
 
     def _bm25_recall(
         self,
@@ -422,9 +462,11 @@ class GraphMemoryRetriever:
                 value = search_filter[key]
                 key_filters.append({"field": key, "op": "=", "value": value})
             corpus_name += "".join(list(search_filter.values()))
-        candidate_ids = self.graph_store.get_by_metadata(key_filters, user_name=user_name)
+        candidate_ids = self.graph_store.get_by_metadata(
+            key_filters, user_name=user_name, status="activated"
+        )
         node_dicts = self.graph_store.get_nodes(
-            list(candidate_ids), include_embedding=self.include_embedding
+            list(candidate_ids), include_embedding=self.include_embedding, user_name=user_name
         )
 
         bm25_query = " ".join(list({query, *parsed_goal.keys}))
@@ -476,15 +518,49 @@ class GraphMemoryRetriever:
         if not all_hits:
             return []
 
-        # merge and deduplicate
-        unique_ids = {r["id"] for r in all_hits if r.get("id")}
+        # merge and deduplicate, keeping highest score per ID
+        id_to_score = {}
+        for r in all_hits:
+            rid = r.get("id")
+            if rid:
+                # Ensure ID is a string and strip any surrounding quotes
+                rid = str(rid).strip("\"'")
+                score = r.get("score", 0.0)
+                if rid not in id_to_score or score > id_to_score[rid]:
+                    id_to_score[rid] = score
+
+        # Sort IDs by score (descending) to preserve ranking
+        sorted_ids = sorted(id_to_score.keys(), key=lambda x: id_to_score[x], reverse=True)
+
         node_dicts = (
             self.graph_store.get_nodes(
-                list(unique_ids),
+                sorted_ids,
                 include_embedding=self.include_embedding,
                 cube_name=cube_name,
                 user_name=user_name,
             )
             or []
         )
-        return [TextualMemoryItem.from_dict(n) for n in node_dicts]
+
+        # Restore score-based order and inject scores into metadata
+        id_to_node = {}
+        for n in node_dicts:
+            node_id = n.get("id")
+            if node_id:
+                # Ensure ID is a string and strip any surrounding quotes
+                node_id = str(node_id).strip("\"'")
+                id_to_node[node_id] = n
+
+        ordered_nodes = []
+        for rid in sorted_ids:
+            # Ensure rid is normalized for matching
+            rid_normalized = str(rid).strip("\"'")
+            if rid_normalized in id_to_node:
+                node = id_to_node[rid_normalized]
+                # Inject similarity score as relativity
+                if "metadata" not in node:
+                    node["metadata"] = {}
+                node["metadata"]["relativity"] = id_to_score.get(rid, 0.0)
+                ordered_nodes.append(node)
+
+        return [TextualMemoryItem.from_dict(n) for n in ordered_nodes]

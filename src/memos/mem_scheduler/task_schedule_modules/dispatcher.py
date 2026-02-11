@@ -20,7 +20,7 @@ from memos.mem_scheduler.schemas.general_schemas import (
     DEFAULT_STOP_WAIT,
 )
 from memos.mem_scheduler.schemas.message_schemas import ScheduleLogForWebItem, ScheduleMessageItem
-from memos.mem_scheduler.schemas.task_schemas import RunningTaskItem
+from memos.mem_scheduler.schemas.task_schemas import RunningTaskItem, TaskPriorityLevel
 from memos.mem_scheduler.task_schedule_modules.orchestrator import SchedulerOrchestrator
 from memos.mem_scheduler.task_schedule_modules.redis_queue import SchedulerRedisQueue
 from memos.mem_scheduler.task_schedule_modules.task_queue import ScheduleTaskQueue
@@ -108,8 +108,6 @@ class SchedulerDispatcher(BaseSchedulerModule):
         )
 
         self.metrics = metrics
-        self._status_tracker: TaskStatusTracker | None = None
-        # Use setter to allow propagation and keep a single source of truth
         self.status_tracker = status_tracker
         self.submit_web_logs = submit_web_logs  # ADDED
 
@@ -117,35 +115,6 @@ class SchedulerDispatcher(BaseSchedulerModule):
         if not msgs:
             return
         # This is handled in BaseScheduler now
-
-    @property
-    def status_tracker(self) -> TaskStatusTracker | None:
-        """Lazy-initialized status tracker for the dispatcher.
-
-        If the tracker is None, attempt to initialize from the Redis-backed
-        components available to the dispatcher (queue or orchestrator).
-        """
-        if self._status_tracker is None:
-            try:
-                self._status_tracker = TaskStatusTracker(self.redis)
-                # Propagate to submodules when created lazily
-                if self.memos_message_queue:
-                    self.memos_message_queue.set_status_tracker(self._status_tracker)
-            except Exception as e:
-                logger.warning(f"Failed to lazily initialize status_tracker: {e}", exc_info=True)
-        return self._status_tracker
-
-    @status_tracker.setter
-    def status_tracker(self, value: TaskStatusTracker | None) -> None:
-        self._status_tracker = value
-        # Propagate to the queue if possible
-        try:
-            if self.memos_message_queue and hasattr(self.memos_message_queue, "status_tracker"):
-                self.memos_message_queue.status_tracker = value
-        except Exception as e:
-            logger.warning(
-                f"Failed to propagate dispatcher status_tracker to queue: {e}", exc_info=True
-            )
 
     def _create_task_wrapper(self, handler: Callable, task_item: RunningTaskItem):
         """
@@ -459,34 +428,70 @@ class SchedulerDispatcher(BaseSchedulerModule):
         with self._task_lock:
             return len(self._running_tasks)
 
-    def register_handler(self, label: str, handler: Callable[[list[ScheduleMessageItem]], None]):
+    def register_handler(
+        self,
+        label: str,
+        handler: Callable[[list[ScheduleMessageItem]], None],
+        priority: TaskPriorityLevel | None = None,
+        min_idle_ms: int | None = None,
+    ):
         """
         Register a handler function for a specific message label.
 
         Args:
             label: Message label to handle
             handler: Callable that processes messages of this label
+            priority: Optional priority level for the task
+            min_idle_ms: Optional minimum idle time for task claiming
         """
         self.handlers[label] = handler
+        if self.orchestrator:
+            self.orchestrator.set_task_config(
+                task_label=label, priority=priority, min_idle_ms=min_idle_ms
+            )
 
     def register_handlers(
-        self, handlers: dict[str, Callable[[list[ScheduleMessageItem]], None]]
+        self,
+        handlers: dict[
+            str,
+            Callable[[list[ScheduleMessageItem]], None]
+            | tuple[
+                Callable[[list[ScheduleMessageItem]], None], TaskPriorityLevel | None, int | None
+            ],
+        ],
     ) -> None:
         """
         Bulk register multiple handlers from a dictionary.
 
         Args:
-            handlers: Dictionary mapping labels to handler functions
-                      Format: {label: handler_callable}
+            handlers: Dictionary where key is label and value is either:
+                     - handler_callable
+                     - tuple(handler_callable, priority, min_idle_ms)
         """
-        for label, handler in handlers.items():
+        for label, value in handlers.items():
             if not isinstance(label, str):
                 logger.error(f"Invalid label type: {type(label)}. Expected str.")
                 continue
+
+            if isinstance(value, tuple):
+                if len(value) != 3:
+                    logger.error(
+                        f"Invalid handler tuple for label '{label}'. Expected (handler, priority, min_idle_ms)."
+                    )
+                    continue
+                handler, priority, min_idle_ms = value
+            else:
+                handler = value
+                priority = None
+                min_idle_ms = None
+
             if not callable(handler):
                 logger.error(f"Handler for label '{label}' is not callable.")
                 continue
-            self.register_handler(label=label, handler=handler)
+
+            self.register_handler(
+                label=label, handler=handler, priority=priority, min_idle_ms=min_idle_ms
+            )
         logger.info(f"Registered {len(handlers)} handlers in bulk")
 
     def unregister_handler(self, label: str) -> bool:
@@ -501,6 +506,8 @@ class SchedulerDispatcher(BaseSchedulerModule):
         """
         if label in self.handlers:
             del self.handlers[label]
+            if self.orchestrator:
+                self.orchestrator.remove_task_config(label)
             logger.info(f"Unregistered handler for label: {label}")
             return True
         else:

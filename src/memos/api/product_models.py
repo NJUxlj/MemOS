@@ -46,6 +46,7 @@ class GetMemoryPlaygroundRequest(BaseRequest):
     )
     mem_cube_ids: list[str] | None = Field(None, description="Cube IDs")
     search_query: str | None = Field(None, description="Search query")
+    search_type: Literal["embedding", "fulltext"] = Field("fulltext", description="Search type")
 
 
 # Start API Models
@@ -95,6 +96,8 @@ class ChatRequest(BaseRequest):
     temperature: float | None = Field(None, description="Temperature for sampling")
     top_p: float | None = Field(None, description="Top-p (nucleus) sampling parameter")
     add_message_on_answer: bool = Field(True, description="Add dialogs to memory after chat")
+    manager_user_id: str | None = Field(None, description="Manager User ID")
+    project_id: str | None = Field(None, description="Project ID")
 
     # ==== Filter conditions ====
     filter: dict[str, Any] | None = Field(
@@ -165,6 +168,13 @@ class ChatPlaygroundRequest(ChatRequest):
     beginner_guide_step: str | None = Field(
         None, description="Whether to use beginner guide, option: [first, second]"
     )
+
+
+class ChatBusinessRequest(ChatRequest):
+    """Request model for chat operations for business user."""
+
+    business_key: str = Field(..., description="Business User Key")
+    need_search: bool = Field(False, description="Whether to need search before chat")
 
 
 class ChatCompleteRequest(BaseRequest):
@@ -319,11 +329,21 @@ class APISearchRequest(BaseRequest):
         description="Number of textual memories to retrieve (top-K). Default: 10.",
     )
 
-    dedup: Literal["no", "sim"] | None = Field(
-        None,
+    relativity: float = Field(
+        0.0,
+        ge=0,
+        description=(
+            "Relevance threshold for recalled memories. "
+            "Only memories with metadata.relativity >= relativity will be returned. "
+            "Use 0 to disable threshold filtering. Default: 0.3."
+        ),
+    )
+
+    dedup: Literal["no", "sim", "mmr"] | None = Field(
+        "mmr",
         description=(
             "Optional dedup option for textual memories. "
-            "Use 'no' for no dedup, 'sim' for similarity dedup. "
+            "Use 'no' for no dedup, 'sim' for similarity dedup, 'mmr' for MMR-based dedup. "
             "If None, default exact-text dedup is applied."
         ),
     )
@@ -356,6 +376,18 @@ class APISearchRequest(BaseRequest):
         6,
         ge=0,
         description="Number of tool memories to retrieve (top-K). Default: 6.",
+    )
+
+    include_skill_memory: bool = Field(
+        True,
+        description="Whether to retrieve skill memories along with general memories. "
+        "If enabled, the system will automatically recall skill memories "
+        "relevant to the query. Default: True.",
+    )
+    skill_mem_top_k: int = Field(
+        3,
+        ge=0,
+        description="Number of skill memories to retrieve (top-K). Default: 3.",
     )
 
     # ==== Filter conditions ====
@@ -393,7 +425,7 @@ class APISearchRequest(BaseRequest):
     # Internal field for search memory type
     search_memory_type: str = Field(
         "All",
-        description="Type of memory to search: All, WorkingMemory, LongTermMemory, UserMemory, OuterMemory, ToolSchemaMemory, ToolTrajectoryMemory",
+        description="Type of memory to search: All, WorkingMemory, LongTermMemory, UserMemory, OuterMemory, ToolSchemaMemory, ToolTrajectoryMemory, RawFileMemory, AllSummaryMemory, SkillMemory",
     )
 
     # ==== Context ====
@@ -429,6 +461,13 @@ class APISearchRequest(BaseRequest):
     source: str | None = Field(
         None,
         description="Source of the search query [plugin will router diff search]",
+    )
+
+    neighbor_discovery: bool = Field(
+        False,
+        description="Whether to enable neighbor discovery. "
+        "If enabled, the system will automatically recall neighbor chunks "
+        "relevant to the query. Default: False.",
     )
 
     @model_validator(mode="after")
@@ -477,6 +516,8 @@ class APIADDRequest(BaseRequest):
         description="Session ID. If not provided, a default session will be used.",
     )
     task_id: str | None = Field(None, description="Task ID for monitering async tasks")
+    manager_user_id: str | None = Field(None, description="Manager User ID")
+    project_id: str | None = Field(None, description="Project ID")
 
     # ==== Multi-cube writing ====
     writable_cube_ids: list[str] | None = Field(
@@ -732,6 +773,8 @@ class APIChatCompleteRequest(BaseRequest):
     temperature: float | None = Field(None, description="Temperature for sampling")
     top_p: float | None = Field(None, description="Top-p (nucleus) sampling parameter")
     add_message_on_answer: bool = Field(True, description="Add dialogs to memory after chat")
+    manager_user_id: str | None = Field(None, description="Manager User ID")
+    project_id: str | None = Field(None, description="Project ID")
 
     # ==== Filter conditions ====
     filter: dict[str, Any] | None = Field(
@@ -771,7 +814,10 @@ class GetMemoryRequest(BaseRequest):
 
     mem_cube_id: str = Field(..., description="Cube ID")
     user_id: str | None = Field(None, description="User ID")
-    include_preference: bool = Field(True, description="Whether to handle preference memory")
+    include_preference: bool = Field(True, description="Whether to return preference memory")
+    include_tool_memory: bool = Field(True, description="Whether to return tool memory")
+    include_skill_memory: bool = Field(True, description="Whether to return skill memory")
+    filter: dict[str, Any] | None = Field(None, description="Filter for the memory")
     page: int | None = Field(
         None,
         description="Page number (starts from 1). If None, exports all data without pagination.",
@@ -779,6 +825,12 @@ class GetMemoryRequest(BaseRequest):
     page_size: int | None = Field(
         None, description="Number of items per page. If None, exports all data without pagination."
     )
+
+
+class GetMemoryDashboardRequest(GetMemoryRequest):
+    """Request model for getting memories for dashboard."""
+
+    mem_cube_id: str | None = Field(None, description="Cube ID")
 
 
 class DeleteMemoryRequest(BaseRequest):
@@ -1202,3 +1254,26 @@ class ExistMemCubeIdRequest(BaseRequest):
 
 class ExistMemCubeIdResponse(BaseResponse[dict[str, bool]]):
     """Response model for checking if mem cube id exists."""
+
+
+class DeleteMemoryByRecordIdRequest(BaseRequest):
+    """Request model for deleting memory by record id."""
+
+    mem_cube_id: str = Field(..., description="Mem cube ID")
+    record_id: str = Field(..., description="Record ID")
+    hard_delete: bool = Field(False, description="Hard delete")
+
+
+class DeleteMemoryByRecordIdResponse(BaseResponse[dict]):
+    """Response model for deleting memory by record id."""
+
+
+class RecoverMemoryByRecordIdRequest(BaseRequest):
+    """Request model for recovering memory by record id."""
+
+    mem_cube_id: str = Field(..., description="Mem cube ID")
+    delete_record_id: str = Field(..., description="Delete record ID")
+
+
+class RecoverMemoryByRecordIdResponse(BaseResponse[dict]):
+    """Response model for recovering memory by record id."""
