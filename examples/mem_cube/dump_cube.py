@@ -22,6 +22,9 @@ import contextlib
 import json
 import os
 import shutil
+import sys
+sys.path.append("../../../src")
+sys.path.append("../../../src/memos")
 
 from memos.api.handlers import init_server
 from memos.api.product_models import APIADDRequest

@@ -561,17 +561,31 @@ class APIConfig:
 
     @staticmethod
     def get_neo4j_community_config(user_id: str | None = None) -> dict[str, Any]:
-        """Get Neo4j community configuration."""
-        return {
-            "uri": os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-            "user": os.getenv("NEO4J_USER", "neo4j"),
-            "db_name": os.getenv("NEO4J_DB_NAME", "neo4j"),
-            "password": os.getenv("NEO4J_PASSWORD", "12345678"),
-            "user_name": f"memos{user_id.replace('-', '')}",
-            "auto_create": False,
-            "use_multi_db": False,
-            "embedding_dimension": int(os.getenv("EMBEDDING_DIMENSION", 1024)),
-            "vec_config": {
+        """Get Neo4j community configuration.
+
+        The internal vector DB backend can be switched via the
+        ``NEO4J_VEC_DB_BACKEND`` environment variable:
+          - ``qdrant``  (default) — uses QDRANT_HOST / QDRANT_PORT
+          - ``milvus``            — uses MILVUS_URI / MILVUS_USER_NAME / MILVUS_PASSWORD
+        """
+        neo4j_vec_db_backend = os.getenv("NEO4J_VEC_DB_BACKEND", "qdrant").lower()
+
+        if neo4j_vec_db_backend == "milvus":
+            vec_config = {
+                "backend": "milvus",
+                "config": {
+                    # Use a dedicated collection so as not to conflict with
+                    # preference-memory collections (explicit_preference / implicit_preference).
+                    "collection_name": [os.getenv("NEO4J_MILVUS_COLLECTION", "neo4j_vec_db")],
+                    "vector_dimension": int(os.getenv("EMBEDDING_DIMENSION", 1024)),
+                    "distance_metric": "cosine",
+                    "uri": os.getenv("MILVUS_URI", "http://localhost:19530"),
+                    "user_name": os.getenv("MILVUS_USER_NAME", "root"),
+                    "password": os.getenv("MILVUS_PASSWORD", "12345678"),
+                },
+            }
+        else:
+            vec_config = {
                 # Pass nested config to initialize external vector DB
                 # If you use qdrant, please use Server instead of local mode.
                 "backend": "qdrant",
@@ -585,7 +599,18 @@ class APIConfig:
                     "url": os.getenv("QDRANT_URL"),
                     "api_key": os.getenv("QDRANT_API_KEY"),
                 },
-            },
+            }
+
+        return {
+            "uri": os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+            "user": os.getenv("NEO4J_USER", "neo4j"),
+            "db_name": os.getenv("NEO4J_DB_NAME", "neo4j"),
+            "password": os.getenv("NEO4J_PASSWORD", "12345678"),
+            "user_name": f"memos{user_id.replace('-', '')}",
+            "auto_create": False,
+            "use_multi_db": False,
+            "embedding_dimension": int(os.getenv("EMBEDDING_DIMENSION", 1024)),
+            "vec_config": vec_config,
         }
 
     @staticmethod
