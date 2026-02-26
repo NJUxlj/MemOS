@@ -1,15 +1,90 @@
 import time
-
+import os
 from memos import log
 from memos.configs.memory import PreferenceTextMemoryConfig
 from memos.memories.textual.preference import PreferenceTextMemory
 
 
+from dotenv import load_dotenv
+from pathlib import Path
+# 从项目目录下的 .env 文件中加载环境变量。 这里需要兼容从 src 目录下， 以及从任意目录启动的情况
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+
+
+DASH_SCOPE_BASE_URL = os.environ.get("DASH_SCOPE_BASE_URL", "https://api.openai.com/v1")
+DASH_SCOPE_API_KEY = os.environ.get("DASH_SCOPE_API_KEY", "xxx")
+DASH_SCOPE_MODEL = os.environ.get("DASH_SCOPE_MODEL", "qwen-max")
+
+EMBEDDING_DIMENSION = int(os.environ.get("EMBEDDING_DIMENSION", 1024))
+MOS_EMBEDDER_BACKEND = os.environ.get("MOS_EMBEDDER_BACKEND", "universal_api")
+MOS_EMBEDDER_PROVIDER = os.environ.get("MOS_EMBEDDER_PROVIDER", "openai")
+MOS_EMBEDDER_MODEL = os.environ.get("MOS_EMBEDDER_MODEL", "bge-large-zh-v1.5")
+MOS_EMBEDDER_API_KEY = os.environ.get("MOS_EMBEDDER_API_KEY", "xxx")
+MOS_EMBEDDER_API_BASE = os.environ.get("MOS_EMBEDDER_API_BASE", "https://api.openai.com/v1")
+
+MOS_RERANKER_BACKEND = os.environ.get("MOS_RERANKER_BACKEND", "http_bge")
+MOS_RERANKER_URL = os.environ.get("MOS_RERANKER_URL", "")
+MOS_RERANKER_MODEL = os.environ.get("MOS_RERANKER_MODEL", "bge-reranker-v2-m3")
+MOS_RERANKER_HEADERS_EXTRA = os.environ.get("MOS_RERANKER_HEADERS_EXTRA", "{}")
+
+MILVUS_URI = os.environ.get("MILVUS_URI", "http://localhost:19530")
+MILVUS_USER_NAME = os.environ.get("MILVUS_USER_NAME", "root")
+MILVUS_PASSWORD = os.environ.get("MILVUS_PASSWORD", "12345678")
+
+
+
 logger = log.get_logger(__name__)
 
-preference_config = PreferenceTextMemoryConfig.from_json_file(
-    "examples/data/config/preference_config.json"
+# preference_config = PreferenceTextMemoryConfig.from_json_file(
+#     "examples/data/config/preference_config.json"
+# )
+
+
+preference_config = PreferenceTextMemoryConfig(
+    extractor_llm={
+        "backend": "openai",
+        "config": {
+            "model_name_or_path": DASH_SCOPE_MODEL,
+            "api_key": DASH_SCOPE_API_KEY,
+            "api_base": DASH_SCOPE_BASE_URL,
+            "temperature": 0.0,
+            "max_tokens": 4096,
+        },
+    },
+    vector_db={
+        "backend": "milvus",
+        "config": {
+            "uri": MILVUS_URI,
+            "collection_name": ["explicit_preference", "implicit_preference"],
+            "vector_dimension": EMBEDDING_DIMENSION,
+            "distance_metric": "cosine",
+            "user_name": MILVUS_USER_NAME,
+            "password": MILVUS_PASSWORD,
+        },
+    },
+    embedder={
+        "backend": MOS_EMBEDDER_BACKEND,
+        "config": {
+            "provider": MOS_EMBEDDER_PROVIDER,
+            "api_key": MOS_EMBEDDER_API_KEY,
+            "base_url": MOS_EMBEDDER_API_BASE,
+            "model_name_or_path": MOS_EMBEDDER_MODEL,
+        },
+    },
+    reranker={
+        "backend": MOS_RERANKER_BACKEND,
+        "config": {
+            "url": MOS_RERANKER_URL,
+            "model": MOS_RERANKER_MODEL,
+            "headers_extra": MOS_RERANKER_HEADERS_EXTRA,
+        },
+    },
+    extractor={"backend": "naive", "config": {}},
+    adder={"backend": "naive", "config": {}},
+    retriever={"backend": "naive", "config": {}},
 )
+
+
 my_preference_textual_memory = PreferenceTextMemory(preference_config)
 my_preference_textual_memory.delete_all()
 

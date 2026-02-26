@@ -1,0 +1,70 @@
+name: memos-dev
+
+# 启动命令：
+#   docker compose -f docker/docker-compose.redis.yml up -d
+#
+# 若主 stack（docker-compose.yml）尚未启动，需先创建共享网络：
+#   docker network create memos_network
+# 或直接先启动主 stack，再启动本文件。
+#
+# 服务说明：
+#   redis        — Redis 7 本体，端口 6379，持久化 AOF+RDB
+#   redisinsight — RedisInsight v2 看板，浏览器访问 http://localhost:5540
+
+services:
+
+  # ── Redis 本体 ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis-docker
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60  10000
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+    networks:
+      - memos_network
+
+  # ── RedisInsight v2 看板 ─────────────────────────────────────────────────────
+  # 访问地址：http://localhost:5540
+  # 首次进入后点击 "Add Redis Database"，填写：
+  #   Host: redis-docker   Port: 6379   （容器内互联，无需密码）
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - memos_network
+
+volumes:
+  redis_data:
+    driver: local
+  redisinsight_data:
+    driver: local
+
+networks:
+  memos_network:
+    external: true   # 复用主 compose（docker-compose.yml）创建的共享网络

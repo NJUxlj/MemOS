@@ -5,6 +5,24 @@ from memos.configs.memory import MemoryConfigFactory
 from memos.memories.factory import MemoryFactory
 
 
+from dotenv import load_dotenv
+from pathlib import Path
+# 从项目目录下的 .env 文件中加载环境变量。 这里需要兼容从 src 目录下， 以及从任意目录启动的情况
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+
+
+DASH_SCOPE_BASE_URL = os.environ.get("DASH_SCOPE_BASE_URL", "https://api.openai.com/v1")
+DASH_SCOPE_API_KEY = os.environ.get("DASH_SCOPE_API_KEY", "xxx")
+DASH_SCOPE_MODEL = os.environ.get("DASH_SCOPE_MODEL", "qwen-max")
+
+EMBEDDING_DIMENSION = os.environ.get("EMBEDDING_DIMENSION", 1024)
+MOS_EMBEDDER_BACKEND = os.environ.get("MOS_EMBEDDER_BACKEND", "universal_api")
+MOS_EMBEDDER_PROVIDER = os.environ.get("MOS_EMBEDDER_PROVIDER", "openai")
+MOS_EMBEDDER_MODEL = os.environ.get("MOS_EMBEDDER_MODEL", "bge-large-zh-v1.5")
+MOS_EMBEDDER_API_KEY = os.environ.get("MOS_EMBEDDER_API_KEY", "xxx")
+MOS_EMBEDDER_API_BASE = os.environ.get("MOS_EMBEDDER_API_BASE", "https://api.openai.com/v1")
+
+
 # Initialize the memory configuration
 # This configuration specifies the extractor, vector database, and embedder backend.
 # Here we use OpenAI for extraction, Qdrant for vector storage, and Ollama for embedding.
@@ -14,12 +32,9 @@ config = MemoryConfigFactory(
         "extractor_llm": {
             "backend": "openai",
             "config": {
-                "model_name_or_path": "gpt-4o-mini",
-                "api_key": os.environ.get("OPENAI_API_KEY"),
-                "api_base": os.environ.get(
-                    "OPENAI_BASE_URL",
-                    os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
-                ),
+                "model_name_or_path": DASH_SCOPE_MODEL,
+                "api_key": DASH_SCOPE_API_KEY,
+                "api_base": DASH_SCOPE_BASE_URL,
                 "temperature": 0.0,
                 "remove_think_prefix": True,
                 "max_tokens": 8192,
@@ -30,13 +45,16 @@ config = MemoryConfigFactory(
             "config": {
                 "collection_name": "test_textual_memory",
                 "distance_metric": "cosine",
-                "vector_dimension": 768,  # nomic-embed-text model's embedding dimension is 768
+                "vector_dimension": 1024,  # nomic-embed-text model's embedding dimension is 768
             },
         },
         "embedder": {
-            "backend": "ollama",
+            "backend": MOS_EMBEDDER_BACKEND,
             "config": {
-                "model_name_or_path": "nomic-embed-text:latest",
+                "provider": MOS_EMBEDDER_PROVIDER,
+                "api_key": MOS_EMBEDDER_API_KEY,
+                "base_url": MOS_EMBEDDER_API_BASE,   # UniversalAPIEmbedderConfig 用 base_url，不是 api_base
+                "model_name_or_path": MOS_EMBEDDER_MODEL,
             },
         },
     },

@@ -6,6 +6,17 @@ from memos.configs.memory import MemoryConfigFactory
 from memos.memories.factory import MemoryFactory
 
 
+from dotenv import load_dotenv
+from pathlib import Path
+# 从项目目录下的 .env 文件中加载环境变量。 这里需要兼容从 src 目录下， 以及从任意目录启动的情况
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+
+
+DASH_SCOPE_BASE_URL = os.environ.get("DASH_SCOPE_BASE_URL", "https://api.openai.com/v1")
+DASH_SCOPE_API_KEY = os.environ.get("DASH_SCOPE_API_KEY", "xxx")
+DASH_SCOPE_MODEL = os.environ.get("DASH_SCOPE_MODEL", "qwen-max")
+
+
 def print_result(title, result):
     """Helper function: Pretty print the result."""
     print(f"\n{'=' * 10} {title} {'=' * 10}")
@@ -22,12 +33,9 @@ config = MemoryConfigFactory(
         "extractor_llm": {
             "backend": "openai",
             "config": {
-                "model_name_or_path": "gpt-4o-mini",
-                "api_key": os.environ.get("OPENAI_API_KEY"),
-                "api_base": os.environ.get(
-                    "OPENAI_BASE_URL",
-                    os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
-                ),
+                "model_name_or_path": DASH_SCOPE_MODEL,
+                "api_key": DASH_SCOPE_API_KEY,
+                "api_base": DASH_SCOPE_BASE_URL,
                 "temperature": 0.0,
                 "remove_think_prefix": True,
             },

@@ -251,7 +251,307 @@ The provided property key is not in the database (missing: status / id)
 
 ---
 
-## 三、问题与修复汇总表
+---
+
+## 问题2.5（深度追查）：0 条记忆的完整根因链
+
+> 该问题经过深度排查，共发现 **3 个 Bug**，均已修复。
+
+### 诊断方法
+
+编写诊断脚本 `scripts/debug_memory_extraction.py`，分 5 步逐层验证整个调用链：
+- Step1: 直接调用 LLM（glm-4.7 是否返回正确 JSON）
+- Step2: 解析 JSON（parse_json_result 能否提取 `"memory list"` key）
+- Step3: Key 名匹配验证
+- Step4: Embedder 调用（bge-m3 服务是否可达，返回类型是否正确）
+- Step5: 端到端复现（模拟 `_process_chat_data` 完整流程）
+
+### 诊断结论
+
+| 步骤 | 结果 | 说明 |
+|------|------|------|
+| LLM 调用 | ✅ 正常 | glm-4.7 返回了格式正确的 JSON，含 2 条记忆 |
+| JSON 解析 | ✅ 正常 | `parse_json_result` 正确提取 `"memory list"` key |
+| Key 名匹配 | ✅ 正常（LLM 成功时）| LLM 失败 fallback 时存在 key 名 Bug（见 Bug-A） |
+| Embedder 调用 | ❌ 失败 | `embed()` 返回 `None` 而非向量列表 |
+| 端到端 | ❌ 失败 | `None[0]` → `'NoneType' object is not subscriptable` |
+
+### Bug-A：`@timed_with_status` 装饰器吞噬异常（已修复）
+
+**文件**：`src/memos/utils.py`
+
+**问题代码**：
+```python
+except Exception as e:
+    ...
+    if fallback is not None and callable(fallback):
+        return result  # 有 fallback → 返回回退值
+    # ← 缺少 raise！无 fallback 时直接 fall-through，隐式返回 None
+finally:
+    # 只记日志，不返回，不抛出
+```
+
+**影响**：任何用 `@timed_with_status()` 装饰的函数（包括 `embed()`），一旦内部抛出异常且没有配置 `fallback` 参数，异常会被完全吞掉，函数返回 `None`，让调用方以为"成功了但结果是 None"。
+
+**修复**：在 `except` 块末尾添加 `raise`：
+```python
+except Exception as e:
+    ...
+    if fallback is not None and callable(fallback):
+        return result
+    raise  # ← 新增：无 fallback 时重新抛出，不再静默返回 None
+```
+
+### Bug-B：Embedder 服务不可达（已修复配置）
+
+**根因**：`.env` 中 `MOS_EMBEDDER_API_BASE=http://10.10.50.150:8998/v1` 是内网 bge-m3 服务地址，本机无法访问（curl 超时，exit code 28）。`embed()` 内部 `asyncio.run()` 抛出连接超时异常，被 `@timed_with_status` 吞掉，返回 `None`，导致上层 `None[0]` 崩溃。
+
+**修复**：`.env` 切换到 SiliconFlow 公有云 API（免费注册，提供相同的 `BAAI/bge-m3` 模型）：
+```bash
+MOS_EMBEDDER_API_BASE=https://api.siliconflow.cn/v1
+MOS_EMBEDDER_MODEL=BAAI/bge-m3
+MOS_EMBEDDER_API_KEY=your_siliconflow_api_key_here  # 需替换为实际 Key
+```
+
+### Bug-C（隐藏 Bug）：LLM 失败时 fallback 的 Key 名不匹配
+
+**文件**：`src/memos/mem_reader/simple_struct.py`
+
+**问题**：
+- `_get_llm_response()` 的 fallback 返回 dict 使用 `"memory_list"`（下划线）
+- `_process_chat_data()` 查找时用的是 `"memory list"`（空格）
+- 导致当 LLM 调用失败时，fallback 记忆条目被静默丢弃，0 条记忆写入，且无任何报错
+
+```python
+# _get_llm_response 的 fallback（第 271 行）
+return {"memory_list": [...]}  # ← 下划线 key
+
+# _process_chat_data（第 365 行）
+for m in resp.get("memory list", []):  # ← 空格 key，永远找不到 fallback 结果
+```
+
+**该 Bug 尚未修复**（需要与项目原作者确认预期行为），但对当前流程影响较小（LLM 正常工作时不触发 fallback 路径）。
+
+---
+
+## 三、本地 API 服务器（uvicorn）启动报错
+
+> 该阶段为启动 `uvicorn memos.api.server_api:app` 后在服务器日志中观察到的报错。
+
+### 问题3.1：`.env` 未被正确加载 — `load_dotenv()` 找错文件
+
+**报错现象：**  
+修改 `.env` 中的配置后（如 `API_SCHEDULER_ON=false`），重启服务器无效，报错依然存在。
+
+**根因：**  
+`server_api.py` 第 14 行调用 `load_dotenv()` 不带参数，Python-dotenv 默认**只在当前工作目录**查找 `.env`。  
+当用户从 `src/` 目录启动 uvicorn 时（`cd src && uvicorn memos.api.server_api:app ...`），`load_dotenv()` 找到的是 `src/.env`（不存在），根本不会读取 `MemOS/.env`，所有修改全部无效，变量回退到系统默认值（`os.getenv("API_SCHEDULER_ON", "true")` 默认为 `"true"`）。
+
+**影响范围：**  
+只要不在项目根目录 `MemOS/` 下启动服务，所有 `.env` 配置均失效。
+
+**修复：**  
+将 `server_api.py` 和 `mem_scheduler/general_modules/misc.py` 的 `load_dotenv()` 改为 `load_dotenv(find_dotenv(usecwd=True) or find_dotenv())`，让 dotenv 从当前目录向上搜索，无论从哪个目录启动服务都能找到项目根目录的 `.env`。
+
+```python
+# server_api.py（修复前）
+from dotenv import load_dotenv
+load_dotenv()
+
+# server_api.py（修复后）
+from dotenv import find_dotenv, load_dotenv
+load_dotenv(find_dotenv(usecwd=True) or find_dotenv())
+```
+
+---
+
+### 问题3.2：pika RabbitMQ `Connection refused` 仍然持续刷屏
+
+**报错信息：**
+```
+pika.adapters.utils.io_services_utils - ERROR - Socket failed to connect: error=61 (Connection refused)
+pika.adapters.utils.connection_workflow - ERROR - TCP Connection attempt failed: ConnectionRefusedError(61, 'Connection refused'); dest=localhost:5672
+memos.mem_scheduler.webservice_modules.rabbitmq_service - ERROR - Connection failed:
+memos.configs.mem_scheduler - WARNING - Failed to initialize components: openai, graph_db. Successfully initialized: rabbitmq
+```
+
+**根因（深度分析）：**  
+此问题经过两轮排查才完全定位：
+
+**第一轮**：发现 `.env` 中存在两个冲突的 `API_SCHEDULER_ON`（第 133 行 `true`，第 141 行 `false`），`python-dotenv` 默认"先出现的值优先"（`override=False`），导致 `false` 从未生效，`mem_scheduler.start()` 被调用。→ 已合并为单一 `API_SCHEDULER_ON=false`。
+
+**第二轮**：修复重复 key 后，pika 错误仍然出现。通过追踪源码发现，RabbitMQ 连接并非在 `start()` 时发起，而是在**调度器 `__init__` 阶段**就已建立：
+
+```python
+# base_scheduler.py: 第 264-267 行
+if self.auth_config is not None:
+    self.rabbitmq_config = self.auth_config.rabbitmq
+    if self.rabbitmq_config is not None:
+        self.initialize_rabbitmq(config=self.rabbitmq_config)  # ← __init__ 里就连接！
+```
+
+`AuthConfig.from_local_env()` 检测到环境中存在 `MEMSCHEDULER_RABBITMQ_*` 前缀的任何 key（即使值为空），就会创建 `RabbitMQConfig` 对象。只要这个对象不为 `None`，`initialize_rabbitmq()` 就会被调用，后台线程开始不断重试连接 RabbitMQ。
+
+**关键规律**：`MEMSCHEDULER_RABBITMQ_*` 这类 key **只要存在**（哪怕值为空）就等同于"已配置"。置空不管用，必须完全注释掉。
+
+**修复：**  
+将 `.env` 中所有 `MEMSCHEDULER_RABBITMQ_*` 条目**注释掉**（而非置空）：
+
+```bash
+# 修复前（值为空，但 key 存在 → 仍会触发连接）
+MEMSCHEDULER_RABBITMQ_HOST_NAME=
+MEMSCHEDULER_RABBITMQ_USER_NAME=
+MEMSCHEDULER_RABBITMQ_PORT=5672
+
+# 修复后（完全注释 → key 不存在 → has_rabbitmq_env=False → 不连接）
+# MEMSCHEDULER_RABBITMQ_HOST_NAME=your_rabbitmq_host
+# MEMSCHEDULER_RABBITMQ_USER_NAME=your_rabbitmq_user
+# MEMSCHEDULER_RABBITMQ_PORT=5672
+```
+
+---
+
+### 问题3.3：hf-mirror.com SSL EOF 错误（偶发，无害）
+
+**报错信息：**
+```
+SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol')
+thrown while requesting HEAD https://hf-mirror.com/gpt2/resolve/main/tokenizer.json
+Retrying in 1s [Retry 1/5].
+```
+
+**根因：**  
+`hf-mirror.com` 镜像站偶发 SSL 握手中断，通常由网络抖动或镜像服务器临时异常引起。HuggingFace Hub 客户端内置 5 次自动重试机制，大多数情况下可自动恢复。
+
+**影响：**  
+首次启动时需要下载 GPT-2 tokenizer（约 1MB），下载成功后会缓存到本地（`~/.cache/huggingface/`），后续启动不再发起网络请求。
+
+**处理方式：**  
+无需修复。若持续失败（5 次重试均不成功），可尝试：
+```bash
+# 手动预先缓存 tokenizer
+python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('gpt2')"
+```
+
+---
+
+## 错误 4.1：系统代理拦截 httpx 导致 Embeddings Error Code 502（本地运行时）
+
+**错误日志：**
+```
+memos.mem_reader.simple_struct - ERROR - [ChatFast] error: Embeddings request ended with error: Error code: 502
+```
+
+**根因（深度排查结论）：**
+
+本机开启了 Clash/VPN 等系统代理（macOS → 网络偏好设置 → 代理：`127.0.0.1:7897`）。  
+httpx 库（OpenAI SDK 的底层 HTTP 客户端）通过 Python 的 `urllib.request.getproxies()` 自动读取 macOS 系统代理设置，导致所有 HTTP 请求（包括对内网 `10.10.50.150:8998` 的 embedding 请求）都被路由到本地代理。  
+
+代理无法访问内网 IP → 返回 `502 Bad Gateway` 或长时间超时（>30s）。
+
+| 客户端 | 行为 | 原因 |
+|--------|------|------|
+| `curl` | ✅ 直连成功（~100ms） | curl 默认不读取 macOS 系统代理 |
+| `requests` | ✅ 直连成功 | 只读 `HTTP_PROXY` 环境变量（未设置） |
+| `httpx` | ❌ 超时/502 | 通过 `urllib.request.getproxies()` 读取 macOS 系统代理 |
+
+**附加根因：原代码用 `asyncio.run()` 包裹同步调用**
+
+原 `embed()` 函数设计缺陷：用 `asyncio.run(asyncio.wait_for(同步函数, timeout=5))` 试图给同步 HTTP 调用加超时，但：
+1. `asyncio.wait_for` 只能在 `await` 切换点取消任务，对无 `await` 的同步调用完全无效
+2. 在 uvloop 多线程环境下（8 个 ThreadPoolExecutor 线程同时 `asyncio.run()`），uvloop 产生竞争/死锁
+
+**修复方案：**
+
+**① 代码修复** — `src/memos/embedders/universal_api.py`：
+- 删除 `asyncio.run()` 和 `asyncio.wait_for()` 包装，改为直接同步调用
+- 新增 `_make_http_client()` 工厂函数，用 `httpx.Client(trust_env=False)` 创建不读取系统代理的 HTTP 客户端
+- 通过 OpenAI SDK 的 `http_client=` 参数注入，将超时控制移到 httpx 层（默认 30s）
+
+```python
+def _make_http_client(timeout: float) -> httpx.Client:
+    return httpx.Client(timeout=timeout, trust_env=False)
+
+self.client = OpenAIClient(
+    api_key=...,
+    base_url=...,
+    http_client=_make_http_client(timeout),
+)
+```
+
+**② 环境变量修复** — `.env`：
+```bash
+# 内网服务不走系统代理
+NO_PROXY=10.0.0.0/8,127.0.0.1,localhost
+no_proxy=10.0.0.0/8,127.0.0.1,localhost
+```
+
+**验证结果：**
+```
+修复后 8 线程并发：
+thread-0: OK dim=1024 in 0.30s
+thread-1: OK dim=1024 in 0.30s
+... (8/8 全部成功)
+```
+
+---
+
+## 错误 4.2：MilvusVecDB.add() 接口与基类不一致导致 TypeError
+
+**错误日志：**
+```
+memos.graph_dbs.neo4j_community - WARNING - neo4j_community.py:186 - add_nodes_batch - [VecDB] batch insert failed: MilvusVecDB.add() missing 1 required positional argument: 'data'
+```
+（同一请求中出现两次）
+
+**根因：**
+
+`MilvusVecDB.add()` 的方法签名与基类 `BaseVecDB.add()` 不一致：
+
+| 类 | `add()` 签名 |
+|---|---|
+| `BaseVecDB`（基类） | `add(self, data)` |
+| `QdrantVecDB` | `add(self, data)` ✅ 一致 |
+| `MilvusVecDB` | `add(self, collection_name, data)` ❌ 多了必填参数 |
+
+`neo4j_community.py` 按基类规范调用：
+```python
+# neo4j_community.py:88
+self.vec_db.add([item])
+# neo4j_community.py:184
+self.vec_db.add(vec_items)
+```
+两处均只传 `data` 一个参数，当底层切换为 Milvus 时，Python 将 `data` 列表误认为 `collection_name` 字符串参数，`data` 参数缺失，抛出 `TypeError`。
+
+**修复：** `src/memos/vec_dbs/milvus.py`
+
+将 `collection_name` 改为可选参数，默认取配置中第一个 collection 名，同步修正内部 `upsert()` 调用顺序：
+
+```python
+# 修复前
+def add(self, collection_name: str, data: list[...]) -> None:
+
+# 修复后
+def add(
+    self,
+    data: list[MilvusVecDBItem | dict[str, Any]],
+    collection_name: str | None = None,
+) -> None:
+    if collection_name is None:
+        collection_name = self.config.collection_name[0]
+    ...
+
+# upsert() 内部调用同步调整
+self.add(data, collection_name)  # 原：self.add(collection_name, data)
+```
+
+**影响范围：**  
+- `neo4j_community.py` 中所有 `self.vec_db.add(...)` 调用无需修改，自动生效
+- Milvus 内部 `upsert()` 方法调用同步修复
+
+---
+
+## 四、问题与修复汇总表
 
 | # | 问题 | 严重程度 | 修复变量/文件 |
 |---|------|----------|---------------|
@@ -262,5 +562,13 @@ The provided property key is not in the database (missing: status / id)
 | 2.2 | Qdrant URL 占位符导致 DNS 失败 | 🔴 崩溃退出 | `.env` - `QDRANT_URL=`（置空） |
 | 2.3 | HuggingFace 下载 GPT-2 tokenizer 超时 | 🟡 卡顿等待 | `.env` - `HF_ENDPOINT=https://hf-mirror.com` |
 | 2.4 | RabbitMQ 连接失败（大量日志噪音） | 🟡 不影响主流程 | `.env` - `API_SCHEDULER_ON=false` |
-| 2.5 | LLM 解析记忆返回 0 条 | 🟡 业务异常 | 排查 `MEMRADER_*` 配置和模型输出格式 |
+| 2.5-A | `@timed_with_status` 装饰器吞噬异常 → embed() 返回 None | 🔴 业务致命 | `src/memos/utils.py` - 添加 `raise` |
+| 2.5-B | Embedder 内网地址不可达（10.10.50.150:8998） | 🔴 业务致命 | `.env` - 切换到 SiliconFlow 公有云 |
+| 2.5-C | LLM fallback 的 key 名不匹配（memory_list vs memory list） | 🟡 隐藏缺陷 | `simple_struct.py:271` 待修复（需确认预期行为） |
 | 2.6 | Neo4j 属性键不存在（WARNING） | ✅ 无害警告 | 无需处理，写入数据后自动消失 |
+| 3.1 | `load_dotenv()` 找错文件，`.env` 配置全部失效 | 🔴 配置失效 | `server_api.py` + `misc.py` - 改用 `find_dotenv()` 向上搜索 |
+| 3.2-A | `.env` 中 `API_SCHEDULER_ON` 重复冲突（true 优先生效） | 🟡 配置冲突 | `.env` - 删除重复行，只保留 `false` |
+| 3.2-B | `MEMSCHEDULER_RABBITMQ_*` key 存在（即使值为空）触发连接 | 🟡 日志噪音 | `.env` - 完全注释掉所有 `MEMSCHEDULER_RABBITMQ_*` 行 |
+| 3.3 | hf-mirror.com 偶发 SSL EOF 错误 | ✅ 偶发无害 | 无需处理，有重试机制，tokenizer 缓存后消失 |
+| 4.1 | 系统代理（Clash/VPN）拦截 httpx 请求导致 502 | 🔴 业务致命 | `universal_api.py` - `httpx.Client(trust_env=False)` + `.env` - `NO_PROXY=10.0.0.0/8` |
+| 4.2 | `MilvusVecDB.add()` 接口与基类不一致，缺少 `data` 参数 | 🔴 业务致命 | `milvus.py` - `collection_name` 改为可选参数，默认取 `config.collection_name[0]` |

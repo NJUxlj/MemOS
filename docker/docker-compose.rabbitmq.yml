@@ -1,0 +1,48 @@
+name: memos-dev
+
+# 启动命令（在项目根目录执行）：
+#   docker compose -f docker/docker-compose.rabbitmq.yml up -d
+#
+# 若 memos_network 尚不存在，先执行：
+#   docker network create memos_network
+#
+# 服务说明：
+#   rabbitmq — RabbitMQ 3 本体，AMQP 端口 5672，内置 Management UI 端口 15672
+#              Virtual Host：memos
+#              默认账号：memos / memos123
+#
+# 看板访问：http://localhost:15672
+#   用户名：memos   密码：memos123
+
+services:
+
+  # ── RabbitMQ（含 Management UI 插件）────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq-docker
+    ports:
+      - "5672:5672"    # AMQP 协议端口（应用连接）
+      - "15672:15672"  # Management Web UI
+    environment:
+      RABBITMQ_DEFAULT_USER: memos
+      RABBITMQ_DEFAULT_PASS: memos123
+      RABBITMQ_DEFAULT_VHOST: memos
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - memos_network
+
+volumes:
+  rabbitmq_data:
+    driver: local
+
+networks:
+  memos_network:
+    external: true   # 复用主 compose（docker-compose.yml）创建的共享网络
