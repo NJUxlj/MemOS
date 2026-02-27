@@ -1,10 +1,40 @@
 import json
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 # Add project root to python path to ensure src modules can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src")))
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+
+# ---------- LLM ----------
+DASH_SCOPE_BASE_URL = os.environ.get("DASH_SCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+DASH_SCOPE_API_KEY  = os.environ.get("DASH_SCOPE_API_KEY", "")
+DASH_SCOPE_MODEL    = os.environ.get("DASH_SCOPE_MODEL", "qwen-max")
+
+# ---------- Embedder ----------
+EMBEDDING_DIMENSION   = int(os.environ.get("EMBEDDING_DIMENSION", 1024))
+MOS_EMBEDDER_BACKEND  = os.environ.get("MOS_EMBEDDER_BACKEND", "universal_api")
+MOS_EMBEDDER_PROVIDER = os.environ.get("MOS_EMBEDDER_PROVIDER", "openai")
+MOS_EMBEDDER_MODEL    = os.environ.get("MOS_EMBEDDER_MODEL", "bge-large-zh-v1.5")
+MOS_EMBEDDER_API_KEY  = os.environ.get("MOS_EMBEDDER_API_KEY", "")
+MOS_EMBEDDER_API_BASE = os.environ.get("MOS_EMBEDDER_API_BASE", "")
+
+# ---------- Reranker ----------
+MOS_RERANKER_BACKEND      = os.environ.get("MOS_RERANKER_BACKEND", "http_bge")
+MOS_RERANKER_URL          = os.environ.get("MOS_RERANKER_URL", "")
+MOS_RERANKER_MODEL        = os.environ.get("MOS_RERANKER_MODEL", "bge-reranker-v2-m3")
+MOS_RERANKER_HEADERS_EXTRA = os.environ.get("MOS_RERANKER_HEADERS_EXTRA", "{}")
+
+# ---------- Graph DB ----------
+NEO4J_URI      = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER     = os.environ.get("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "12345678")
+NEO4J_DB_NAME  = os.environ.get("NEO4J_DB_NAME", "neo4j")
 
 
 def init_components():
@@ -46,13 +76,13 @@ def init_components():
         {
             "backend": "openai",
             "config": {
-                "model_name_or_path": os.getenv("MOS_CHAT_MODEL", "gpt-4o"),
+                "model_name_or_path": DASH_SCOPE_MODEL,
                 "temperature": 0.8,
                 "max_tokens": 1024,
                 "top_p": 0.9,
                 "top_k": 50,
-                "api_key": os.getenv("OPENAI_API_KEY"),
-                "api_base": os.getenv("OPENAI_API_BASE"),
+                "api_key": DASH_SCOPE_API_KEY,
+                "api_base": DASH_SCOPE_BASE_URL,
             },
         }
     )
@@ -61,12 +91,12 @@ def init_components():
     # 2. Embedder: Configure embedding model for generating text vectors
     embedder_config = EmbedderConfigFactory.model_validate(
         {
-            "backend": os.getenv("MOS_EMBEDDER_BACKEND", "universal_api"),
+            "backend": MOS_EMBEDDER_BACKEND,
             "config": {
-                "provider": "openai",
-                "api_key": os.getenv("MOS_EMBEDDER_API_KEY", "EMPTY"),
-                "model_name_or_path": os.getenv("MOS_EMBEDDER_MODEL", "bge-m3"),
-                "base_url": os.getenv("MOS_EMBEDDER_API_BASE"),
+                "provider": MOS_EMBEDDER_PROVIDER,
+                "api_key": MOS_EMBEDDER_API_KEY,
+                "model_name_or_path": MOS_EMBEDDER_MODEL,
+                "base_url": MOS_EMBEDDER_API_BASE,
             },
         }
     )
@@ -78,14 +108,14 @@ def init_components():
             {
                 "backend": "neo4j",
                 "config": {
-                    "uri": os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687"),
-                    "user": os.getenv("NEO4J_USER", "neo4j"),
-                    "password": os.getenv("NEO4J_PASSWORD", "12345678"),
-                    "db_name": os.getenv("NEO4J_DB_NAME", "neo4j"),
+                    "uri": NEO4J_URI,
+                    "user": NEO4J_USER,
+                    "password": NEO4J_PASSWORD,
+                    "db_name": NEO4J_DB_NAME,
                     "user_name": "zhs",
                     "auto_create": True,
                     "use_multi_db": False,
-                    "embedding_dimension": int(os.getenv("EMBEDDING_DIMENSION", "1024")),
+                    "embedding_dimension": EMBEDDING_DIMENSION,
                 },
             }
         )
@@ -123,8 +153,11 @@ def init_components():
     mem_reranker = RerankerFactory.from_config(
         RerankerConfigFactory.model_validate(
             {
-                "backend": os.getenv("MOS_RERANKER_BACKEND", "cosine_local"),
+                "backend": MOS_RERANKER_BACKEND,
                 "config": {
+                    "url": MOS_RERANKER_URL,
+                    "model": MOS_RERANKER_MODEL,
+                    "headers_extra": MOS_RERANKER_HEADERS_EXTRA,
                     "level_weights": {"topic": 1.0, "concept": 1.0, "fact": 1.0},
                     "level_field": "background",
                 },

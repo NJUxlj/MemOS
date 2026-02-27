@@ -1,14 +1,36 @@
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 # Add project root to python path to ensure src modules can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src")))
 
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+
 from memos.configs.mem_chat import MemChatConfigFactory
 from memos.configs.mem_cube import GeneralMemCubeConfig
 from memos.mem_chat.factory import MemChatFactory
 from memos.mem_cube.general import GeneralMemCube
+
+# ---------- LLM ----------
+DASH_SCOPE_BASE_URL = os.environ.get("DASH_SCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+DASH_SCOPE_API_KEY  = os.environ.get("DASH_SCOPE_API_KEY", "")
+DASH_SCOPE_MODEL    = os.environ.get("DASH_SCOPE_MODEL", "qwen-max")
+
+# ---------- Embedder ----------
+EMBEDDING_DIMENSION    = int(os.environ.get("EMBEDDING_DIMENSION", 1024))
+MOS_EMBEDDER_BACKEND   = os.environ.get("MOS_EMBEDDER_BACKEND", "universal_api")
+MOS_EMBEDDER_PROVIDER  = os.environ.get("MOS_EMBEDDER_PROVIDER", "openai")
+MOS_EMBEDDER_MODEL     = os.environ.get("MOS_EMBEDDER_MODEL", "bge-large-zh-v1.5")
+MOS_EMBEDDER_API_KEY   = os.environ.get("MOS_EMBEDDER_API_KEY", "")
+MOS_EMBEDDER_API_BASE  = os.environ.get("MOS_EMBEDDER_API_BASE", "")
+
+# ---------- Vector DB ----------
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", 6333))
 
 
 def get_mem_chat_config() -> MemChatConfigFactory:
@@ -31,14 +53,13 @@ def get_mem_chat_config() -> MemChatConfigFactory:
                 "chat_llm": {
                     "backend": "openai",
                     "config": {
-                        # Prioritize getting sensitive information and model configuration from environment variables
-                        "model_name_or_path": os.getenv("MOS_CHAT_MODEL", "gpt-4o"),
+                        "model_name_or_path": DASH_SCOPE_MODEL,
                         "temperature": 0.8,
                         "max_tokens": 1024,
                         "top_p": 0.9,
                         "top_k": 50,
-                        "api_key": os.getenv("OPENAI_API_KEY"),
-                        "api_base": os.getenv("OPENAI_API_BASE"),
+                        "api_key": DASH_SCOPE_API_KEY,
+                        "api_base": DASH_SCOPE_BASE_URL,
                     },
                 },
                 "max_turns_window": 20,
@@ -78,30 +99,32 @@ def get_mem_cube_config() -> GeneralMemCubeConfig:
                     "extractor_llm": {
                         "backend": "openai",
                         "config": {
-                            "model_name_or_path": os.getenv("MOS_CHAT_MODEL", "gpt-4o"),
+                            "model_name_or_path": DASH_SCOPE_MODEL,
                             "temperature": 0.8,
                             "max_tokens": 1024,
                             "top_p": 0.9,
                             "top_k": 50,
-                            "api_key": os.getenv("OPENAI_API_KEY"),
-                            "api_base": os.getenv("OPENAI_API_BASE"),
+                            "api_key": DASH_SCOPE_API_KEY,
+                            "api_base": DASH_SCOPE_BASE_URL,
                         },
                     },
                     "vector_db": {
                         "backend": "qdrant",
                         "config": {
                             "collection_name": "user03alice_mem_cube_general",
-                            "vector_dimension": 1024,
+                            "vector_dimension": EMBEDDING_DIMENSION,
                             "distance_metric": "cosine",
+                            "host": QDRANT_HOST,
+                            "port": QDRANT_PORT,
                         },
                     },
                     "embedder": {
-                        "backend": os.getenv("MOS_EMBEDDER_BACKEND", "universal_api"),
+                        "backend": MOS_EMBEDDER_BACKEND,
                         "config": {
-                            "provider": "openai",
-                            "api_key": os.getenv("MOS_EMBEDDER_API_KEY", "EMPTY"),
-                            "model_name_or_path": os.getenv("MOS_EMBEDDER_MODEL", "bge-m3"),
-                            "base_url": os.getenv("MOS_EMBEDDER_API_BASE"),
+                            "provider": MOS_EMBEDDER_PROVIDER,
+                            "api_key": MOS_EMBEDDER_API_KEY,
+                            "model_name_or_path": MOS_EMBEDDER_MODEL,
+                            "base_url": MOS_EMBEDDER_API_BASE,
                         },
                     },
                 },

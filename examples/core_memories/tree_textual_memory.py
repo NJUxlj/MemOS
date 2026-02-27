@@ -117,8 +117,35 @@ my_tree_textual_memory = TreeTextMemory(tree_config)
 my_tree_textual_memory.delete_all()
 
 # Create a memory reader instance
-reader_config = SimpleStructMemReaderConfig.from_json_file(
-    "examples/data/config/simple_struct_reader_config.json"
+reader_config = SimpleStructMemReaderConfig(
+    llm={
+        "backend": "openai",
+        "config": {
+            "model_name_or_path": DASH_SCOPE_MODEL,
+            "api_key": DASH_SCOPE_API_KEY,
+            "api_base": DASH_SCOPE_BASE_URL,
+            "temperature": 0.8,
+            "max_tokens": 1024,
+        },
+    },
+    embedder={
+        "backend": MOS_EMBEDDER_BACKEND,
+        "config": {
+            "provider": MOS_EMBEDDER_PROVIDER,
+            "api_key": MOS_EMBEDDER_API_KEY,
+            "base_url": MOS_EMBEDDER_API_BASE,
+            "model_name_or_path": MOS_EMBEDDER_MODEL,
+        },
+    },
+    chunker={
+        "backend": "sentence",
+        "config": {
+            "tokenizer_or_token_counter": "gpt2",
+            "chunk_size": 2048,
+            "chunk_overlap": 128,
+            "min_sentences_per_chunk": 1,
+        },
+    },
 )
 reader = SimpleStructMemReader(reader_config)
 
@@ -377,4 +404,6 @@ my_tree_textual_memory.memory_manager.close()
 
 # my_tree_textual_memory.dump
 my_tree_textual_memory.dump("tmp/my_tree_textual_memory")
-my_tree_textual_memory.drop()
+# 使用共享数据库模式（use_multi_db=False）时，drop() 会尝试删除受保护的 neo4j 数据库导致报错。
+# 改为只清理当前用户的数据节点，而不删除整个数据库。
+my_tree_textual_memory.delete_all()
